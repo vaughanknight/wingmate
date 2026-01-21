@@ -174,6 +174,58 @@ Each agent publishes an Agent Card at `/.well-known/agent.json`:
 }
 ```
 
+## LLM Support
+
+Wingmate can use Claude CLI to provide intelligent responses to messages. When Claude CLI is installed, agents gain a `chat` skill that processes messages through Claude.
+
+### Quick Setup
+
+1. **Install Claude CLI** from [claude.ai/download](https://claude.ai/download)
+2. **Authenticate**: Run `claude` once and follow the prompts to sign in
+3. **Start Wingmate**: The agent automatically detects Claude CLI
+
+```bash
+# Verify Claude CLI is installed
+claude --version
+
+# Start agent (chat skill enabled automatically)
+./bin/wingmate --name my-agent --port 9000
+```
+
+When Claude CLI is available, the Agent Card includes a `chat` skill:
+
+```json
+{
+  "skills": [
+    {
+      "id": "chat",
+      "name": "Chat",
+      "description": "Process messages using Claude"
+    }
+  ]
+}
+```
+
+### Configuration
+
+Configure LLM behavior via environment variables or config file:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WINGMATE_LLM_MODEL` | Claude model to use | `claude-sonnet-4-20250514` |
+| `WINGMATE_LLM_TIMEOUT` | Request timeout | `30s` |
+| `WINGMATE_LLM_CLI_PATH` | Path to Claude CLI | Auto-detected |
+
+### Troubleshooting
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| Error 2001 | Claude CLI not installed | Install from [claude.ai/download](https://claude.ai/download) |
+| Error 2002 | CLI execution failed | Check `claude --version` works |
+| Error 2003 | Response parse error | Ensure CLI version is compatible |
+
+For detailed setup instructions, see [docs/how/llm-setup.md](docs/how/llm-setup.md).
+
 ## Development
 
 ### Build for All Platforms

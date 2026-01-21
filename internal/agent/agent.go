@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wingmate/wingmate/internal/flightlog"
+	"github.com/wingmate/wingmate/internal/llm"
 	"github.com/wingmate/wingmate/internal/protocol"
 	"github.com/wingmate/wingmate/pkg/types"
 )
@@ -23,6 +24,10 @@ type Agent struct {
 	client    protocol.Client
 	flightLog *flightlog.FlightLog
 	card      *types.AgentCard
+
+	// LLM integration
+	llmExecutor    llm.LLMExecutor
+	sessionManager *llm.SessionManager
 
 	// State
 	ready    chan struct{}
@@ -59,17 +64,42 @@ func New(cfg *Config) (*Agent, error) {
 	server := protocol.NewA2AServer()
 	client := protocol.NewA2AClient()
 
-	// Build Agent Card
-	card := buildAgentCard(cfg)
+	// Create LLM executor if CLI is available
+	var llmExec llm.LLMExecutor
+	var sessionMgr *llm.SessionManager
+
+	// Build CLI executor options from config
+	var cliOpts []llm.Option
+	if cfg.Claude.CLIPath != "" {
+		cliOpts = append(cliOpts, llm.WithCLIPath(cfg.Claude.CLIPath))
+	}
+	if cfg.Claude.Timeout > 0 {
+		cliOpts = append(cliOpts, llm.WithTimeout(cfg.Claude.Timeout))
+	}
+	if cfg.Claude.Model != "" {
+		cliOpts = append(cliOpts, llm.WithModel(cfg.Claude.Model))
+	}
+
+	// Create executor and check if CLI is installed
+	executor := llm.NewCLIExecutor(cliOpts...)
+	if executor.IsInstalled() {
+		llmExec = executor
+		sessionMgr = llm.NewSessionManager()
+	}
+
+	// Build Agent Card (includes chat skill if LLM available)
+	card := buildAgentCard(cfg, llmExec != nil)
 
 	agent := &Agent{
-		config:     cfg,
-		server:     server,
-		client:     client,
-		flightLog:  fl,
-		card:       card,
-		ready:      make(chan struct{}),
-		knownPeers: make(map[string]*types.AgentCard),
+		config:         cfg,
+		server:         server,
+		client:         client,
+		flightLog:      fl,
+		card:           card,
+		llmExecutor:    llmExec,
+		sessionManager: sessionMgr,
+		ready:          make(chan struct{}),
+		knownPeers:     make(map[string]*types.AgentCard),
 	}
 
 	// Register handler
@@ -80,7 +110,22 @@ func New(cfg *Config) (*Agent, error) {
 }
 
 // buildAgentCard creates the Agent Card from config.
-func buildAgentCard(cfg *Config) *types.AgentCard {
+func buildAgentCard(cfg *Config, llmAvailable bool) *types.AgentCard {
+	skills := []types.Skill{
+		{
+			Name:        "ping",
+			Description: "Respond to ping with pong",
+		},
+	}
+
+	// Add chat skill if LLM is available
+	if llmAvailable {
+		skills = append(skills, types.Skill{
+			Name:        "chat",
+			Description: "Process natural language messages using Claude",
+		})
+	}
+
 	return &types.AgentCard{
 		Name:        cfg.Name,
 		Description: "Wingmate A2A agent",
@@ -90,12 +135,7 @@ func buildAgentCard(cfg *Config) *types.AgentCard {
 			Streaming:         false,
 			PushNotifications: false,
 		},
-		Skills: []types.Skill{
-			{
-				Name:        "ping",
-				Description: "Respond to ping with pong",
-			},
-		},
+		Skills: skills,
 		Authentication: &types.Authentication{
 			Schemes: []string{},
 		},
@@ -222,6 +262,152 @@ func (a *Agent) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// extractTextFromMessage extracts all text parts from a message, concatenated.
+func extractTextFromMessage(msg *types.Message) string {
+	if msg == nil || len(msg.Parts) == 0 {
+		return ""
+	}
+
+	var texts []string
+	for _, part := range msg.Parts {
+		if part.Kind == "text" && part.Text != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+
+	if len(texts) == 0 {
+		return ""
+	}
+
+	// Join multiple text parts with newlines
+	result := texts[0]
+	for i := 1; i < len(texts); i++ {
+		result += "\n" + texts[i]
+	}
+	return result
+}
+
+// handleLLMMessage processes a non-ping message using the LLM executor.
+// It manages session continuity and logs all CLI interactions to the Flight Log.
+func (a *Agent) handleLLMMessage(ctx context.Context, msg *types.Message) (*types.A2AResponse, error) {
+	// Extract text from message for the prompt
+	prompt := extractTextFromMessage(msg)
+	if prompt == "" {
+		return nil, &protocol.ErrorObject{
+			Code:    protocol.CodeInvalidParams,
+			Message: "message contains no text",
+		}
+	}
+
+	// Get conversation ID for session tracking
+	// Use the trace ID from context as conversation ID
+	conversationID := flightlog.TraceIDFromContext(ctx)
+	if conversationID == "" {
+		// Fallback to a generated ID if no trace ID
+		conversationID = fmt.Sprintf("conv-%d", time.Now().UnixNano())
+	}
+
+	// Get existing session ID for conversation continuity
+	sessionID := a.sessionManager.Get(conversationID)
+
+	// Log CLI request before execution (T008)
+	startTime := time.Now()
+	reqEntry := flightlog.NewEntryWithRole(
+		ctx,
+		a.config.Name,
+		flightlog.RoleWingmate,
+		flightlog.Outbound,
+		"CLI request",
+		map[string]interface{}{
+			"type":      "cli_request",
+			"prompt":    prompt,
+			"sessionID": sessionID,
+		},
+	)
+	a.flightLog.Record(reqEntry)
+
+	// Execute CLI
+	resp, err := a.llmExecutor.Execute(ctx, prompt, sessionID)
+	if err != nil {
+		// Log the error
+		errEntry := flightlog.NewEntryWithRole(
+			ctx,
+			a.config.Name,
+			flightlog.RoleWingmate,
+			flightlog.Inbound,
+			"CLI error",
+			map[string]interface{}{
+				"type":     "cli_error",
+				"error":    err.Error(),
+				"duration": time.Since(startTime).String(),
+			},
+		)
+		a.flightLog.Record(errEntry)
+
+		// Return the LLM error
+		if llmErr, ok := err.(*llm.LLMError); ok {
+			return nil, &protocol.ErrorObject{
+				Code:    llmErr.Code,
+				Message: llmErr.Message,
+			}
+		}
+		return nil, &protocol.ErrorObject{
+			Code:    llm.CodeLLMExecutionFailed,
+			Message: err.Error(),
+		}
+	}
+
+	// Store new session ID for continuity
+	if resp.SessionID != "" {
+		a.sessionManager.Set(conversationID, resp.SessionID)
+	}
+
+	// Log CLI response after execution (T009)
+	duration := time.Since(startTime)
+	respEntry := flightlog.NewEntryWithRole(
+		ctx,
+		a.config.Name,
+		flightlog.RoleWingmate,
+		flightlog.Inbound,
+		"CLI response",
+		map[string]interface{}{
+			"type":         "cli_response",
+			"sessionID":    resp.SessionID,
+			"inputTokens":  resp.Usage.InputTokens,
+			"outputTokens": resp.Usage.OutputTokens,
+			"model":        resp.Metadata.Model,
+			"duration":     duration.String(),
+			"durationMs":   duration.Milliseconds(),
+		},
+	)
+	a.flightLog.Record(respEntry)
+
+	// Convert CLI response to A2A message
+	responseMsg, err := llm.FromCLIResponse(resp)
+	if err != nil {
+		return nil, &protocol.ErrorObject{
+			Code:    llm.CodeLLMInvalidResponse,
+			Message: "failed to convert CLI response",
+		}
+	}
+
+	// Log outbound response
+	outEntry := flightlog.NewEntryWithRole(
+		ctx,
+		a.config.Name,
+		flightlog.RoleWingmate,
+		flightlog.Outbound,
+		"Sending LLM response",
+		responseMsg,
+	)
+	a.flightLog.Record(outEntry)
+
+	return &types.A2AResponse{
+		JSONRPC: "2.0",
+		Result:  mustMarshal(responseMsg),
+	}, nil
+}
+
 // HandleMessage processes an incoming message (acts as "wingmate" in this conversation).
 // This implements protocol.MessageHandler.
 func (a *Agent) HandleMessage(ctx context.Context, msg *types.Message) (*types.A2AResponse, error) {
@@ -265,10 +451,15 @@ func (a *Agent) HandleMessage(ctx context.Context, msg *types.Message) (*types.A
 		}, nil
 	}
 
-	// Unknown message type
+	// Route non-ping messages to LLM if available (T006, T007)
+	if a.llmExecutor != nil {
+		return a.handleLLMMessage(ctx, msg)
+	}
+
+	// No LLM available - return error 2001 (T007)
 	return nil, &protocol.ErrorObject{
-		Code:    protocol.CodeMethodNotFound,
-		Message: "unknown message type",
+		Code:    llm.CodeLLMUnavailable,
+		Message: "Claude CLI not installed - chat requires Claude CLI (https://claude.ai/download)",
 	}
 }
 

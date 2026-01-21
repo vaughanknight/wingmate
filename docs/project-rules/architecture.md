@@ -99,7 +99,9 @@
 | **Capability Registry** | Track available local tools and skills | MCP tools |
 | **Agent Executor** | Process requests, invoke Claude, use tools | Claude API, MCP |
 | **Flight Log** | Record all exchanges for observability | Logging library |
-| **Claude API** | LLM reasoning and generation | Anthropic API |
+| **LLM Executor** | Execute prompts via Claude CLI, manage sessions | Claude CLI binary |
+| **Session Manager** | Maintain conversation context via session IDs | In-memory storage |
+| **Claude API** | LLM reasoning and generation | Anthropic API (via CLI) |
 | **MCP Tools** | Local system access (files, metrics, etc.) | MCP server |
 
 ### 2.3 Module Boundaries
@@ -124,6 +126,16 @@ wingmate/
 │   │   ├── messages.go     # Message types
 │   │   └── jsonrpc.go      # JSON-RPC 2.0 implementation
 │   │
+│   ├── llm/                # LLM integration (Claude CLI)
+│   │   ├── types.go        # CLIResponse, Usage, Metadata types
+│   │   ├── client.go       # LLMExecutor interface
+│   │   ├── cli.go          # CLIExecutor implementation
+│   │   ├── errors.go       # Error codes 2001-2006
+│   │   ├── convert.go      # Response conversion to A2A format
+│   │   ├── config.go       # LLM configuration
+│   │   ├── validate.go     # Config validation
+│   │   └── session.go      # SessionManager for conversation continuity
+│   │
 │   └── flightlog/          # Flight Log and tracing
 │       ├── flightlog.go    # FlightLog struct and methods
 │       └── entry.go        # Log entry types
@@ -141,9 +153,11 @@ wingmate/
 ```
 
 **Dependency Rules:**
-- `internal/agent/` MAY import `internal/protocol/`, `internal/flightlog/`
+- `internal/agent/` MAY import `internal/protocol/`, `internal/flightlog/`, `internal/llm/`
+- `internal/llm/` MAY import `internal/flightlog/`, `pkg/types/` (for message conversion)
 - `internal/protocol/` MUST NOT import `internal/agent/`
 - `internal/flightlog/` MUST NOT import `internal/agent/`
+- `internal/llm/` MUST NOT import `internal/agent/`, `internal/protocol/`
 - `pkg/` packages are for external consumption; `internal/` packages are private
 
 **Note:** Per [ADR-003](../adr/003-unified-peer-architecture.md), there are no separate `internal/pilot/` or `internal/wingmate/` directories. Every agent instance can act as either pilot (initiator) or wingmate (responder) in any conversation.

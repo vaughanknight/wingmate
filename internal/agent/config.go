@@ -5,12 +5,19 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Default configuration values.
 const (
 	DefaultPort    = 9000
 	DefaultLogFile = "./flight.jsonl"
+)
+
+// Claude CLI default configuration values.
+const (
+	DefaultClaudeTimeout      = 120 * time.Second
+	DefaultClaudeSystemPrompt = "You are a debugging assistant helping engineers identify and resolve issues in distributed systems. Provide clear, actionable advice."
 )
 
 // Environment variable names.
@@ -22,15 +29,32 @@ const (
 	EnvVerbose = "WINGMATE_VERBOSE"
 )
 
+// Claude CLI environment variable names.
+const (
+	EnvClaudeCLIPath      = "WINGMATE_CLAUDE_CLI_PATH"
+	EnvClaudeModel        = "WINGMATE_CLAUDE_MODEL"
+	EnvClaudeTimeout      = "WINGMATE_CLAUDE_TIMEOUT"
+	EnvClaudeSystemPrompt = "WINGMATE_CLAUDE_SYSTEM_PROMPT"
+)
+
+// ClaudeConfig holds Claude CLI-specific configuration.
+type ClaudeConfig struct {
+	CLIPath      string        `json:"cliPath,omitempty"`      // Path to claude binary (empty = auto-detect)
+	Model        string        `json:"model,omitempty"`        // Model to use (sonnet, opus, haiku)
+	Timeout      time.Duration `json:"timeout,omitempty"`      // Command timeout (default: 120s)
+	SystemPrompt string        `json:"systemPrompt,omitempty"` // System prompt for debugging context
+}
+
 // Config holds the agent configuration.
 // Per ADR-003: There is NO Mode field - every agent is a full peer.
 type Config struct {
-	Name         string   `json:"name"`                   // Agent name (required)
-	Port         int      `json:"port"`                   // Listen port (default: 9000)
-	Peers        []string `json:"peers,omitempty"`        // Known peer URLs
-	LogFile      string   `json:"logFile"`                // Flight log path (default: ./flight.jsonl)
-	Verbose      bool     `json:"verbose"`                // Mirror logs to stdout
-	Capabilities []string `json:"capabilities,omitempty"` // Advertised capabilities
+	Name         string       `json:"name"`                   // Agent name (required)
+	Port         int          `json:"port"`                   // Listen port (default: 9000)
+	Peers        []string     `json:"peers,omitempty"`        // Known peer URLs
+	LogFile      string       `json:"logFile"`                // Flight log path (default: ./flight.jsonl)
+	Verbose      bool         `json:"verbose"`                // Mirror logs to stdout
+	Capabilities []string     `json:"capabilities,omitempty"` // Advertised capabilities
+	Claude       ClaudeConfig `json:"claude,omitempty"`       // Claude CLI configuration
 }
 
 // NewConfig creates a new Config with default values.
@@ -88,6 +112,25 @@ func (c *Config) WithEnv() *Config {
 		result.Verbose = verboseStr == "true" || verboseStr == "1"
 	}
 
+	// Claude CLI environment variables
+	if cliPath := os.Getenv(EnvClaudeCLIPath); cliPath != "" {
+		result.Claude.CLIPath = cliPath
+	}
+
+	if model := os.Getenv(EnvClaudeModel); model != "" {
+		result.Claude.Model = model
+	}
+
+	if timeoutStr := os.Getenv(EnvClaudeTimeout); timeoutStr != "" {
+		if timeout, err := time.ParseDuration(timeoutStr); err == nil {
+			result.Claude.Timeout = timeout
+		}
+	}
+
+	if systemPrompt := os.Getenv(EnvClaudeSystemPrompt); systemPrompt != "" {
+		result.Claude.SystemPrompt = systemPrompt
+	}
+
 	return result
 }
 
@@ -111,6 +154,15 @@ func (c *Config) WithDefaults() *Config {
 		result.Capabilities = []string{}
 	}
 
+	// Claude CLI defaults
+	if result.Claude.Timeout == 0 {
+		result.Claude.Timeout = DefaultClaudeTimeout
+	}
+
+	if result.Claude.SystemPrompt == "" {
+		result.Claude.SystemPrompt = DefaultClaudeSystemPrompt
+	}
+
 	return result
 }
 
@@ -121,6 +173,12 @@ func (c *Config) Clone() *Config {
 		Port:    c.Port,
 		LogFile: c.LogFile,
 		Verbose: c.Verbose,
+		Claude: ClaudeConfig{
+			CLIPath:      c.Claude.CLIPath,
+			Model:        c.Claude.Model,
+			Timeout:      c.Claude.Timeout,
+			SystemPrompt: c.Claude.SystemPrompt,
+		},
 	}
 
 	// Deep copy slices

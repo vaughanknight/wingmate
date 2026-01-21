@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestConfig_LoadFromFile verifies loading config from a JSON file.
@@ -339,5 +340,354 @@ func TestConfig_Clone(t *testing.T) {
 
 	if original.Peers[0] != "http://a:1" {
 		t.Errorf("Original Peers changed to %v", original.Peers)
+	}
+}
+
+// =============================================================================
+// Claude Configuration Tests (Phase 3)
+// =============================================================================
+
+// TestClaudeConfig_Defaults verifies ClaudeConfig has zero values initially.
+func TestClaudeConfig_Defaults(t *testing.T) {
+	cfg := NewConfig()
+
+	if cfg.Claude.CLIPath != "" {
+		t.Errorf("Claude.CLIPath = %q, want empty", cfg.Claude.CLIPath)
+	}
+
+	if cfg.Claude.Model != "" {
+		t.Errorf("Claude.Model = %q, want empty", cfg.Claude.Model)
+	}
+
+	if cfg.Claude.Timeout != 0 {
+		t.Errorf("Claude.Timeout = %v, want 0", cfg.Claude.Timeout)
+	}
+
+	if cfg.Claude.SystemPrompt != "" {
+		t.Errorf("Claude.SystemPrompt = %q, want empty", cfg.Claude.SystemPrompt)
+	}
+}
+
+// TestClaudeConfig_JSON verifies JSON marshaling/unmarshaling.
+func TestClaudeConfig_JSON(t *testing.T) {
+	cfg := Config{
+		Name: "test",
+		Port: 9000,
+		Claude: ClaudeConfig{
+			CLIPath:      "/usr/local/bin/claude",
+			Model:        "opus",
+			Timeout:      180 * time.Second,
+			SystemPrompt: "Test prompt",
+		},
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if loaded.Claude.CLIPath != "/usr/local/bin/claude" {
+		t.Errorf("Claude.CLIPath = %q, want /usr/local/bin/claude", loaded.Claude.CLIPath)
+	}
+
+	if loaded.Claude.Model != "opus" {
+		t.Errorf("Claude.Model = %q, want opus", loaded.Claude.Model)
+	}
+
+	if loaded.Claude.Timeout != 180*time.Second {
+		t.Errorf("Claude.Timeout = %v, want 180s", loaded.Claude.Timeout)
+	}
+
+	if loaded.Claude.SystemPrompt != "Test prompt" {
+		t.Errorf("Claude.SystemPrompt = %q, want 'Test prompt'", loaded.Claude.SystemPrompt)
+	}
+}
+
+// TestConfig_WithEnv_ClaudeCLIPath verifies WINGMATE_CLAUDE_CLI_PATH override.
+func TestConfig_WithEnv_ClaudeCLIPath(t *testing.T) {
+	t.Setenv("WINGMATE_CLAUDE_CLI_PATH", "/custom/claude")
+
+	cfg := NewConfig().WithEnv()
+
+	if cfg.Claude.CLIPath != "/custom/claude" {
+		t.Errorf("Claude.CLIPath = %q, want /custom/claude", cfg.Claude.CLIPath)
+	}
+}
+
+// TestConfig_WithEnv_ClaudeModel verifies WINGMATE_CLAUDE_MODEL override.
+func TestConfig_WithEnv_ClaudeModel(t *testing.T) {
+	t.Setenv("WINGMATE_CLAUDE_MODEL", "haiku")
+
+	cfg := NewConfig().WithEnv()
+
+	if cfg.Claude.Model != "haiku" {
+		t.Errorf("Claude.Model = %q, want haiku", cfg.Claude.Model)
+	}
+}
+
+// TestConfig_WithEnv_ClaudeTimeout verifies WINGMATE_CLAUDE_TIMEOUT override.
+func TestConfig_WithEnv_ClaudeTimeout(t *testing.T) {
+	t.Setenv("WINGMATE_CLAUDE_TIMEOUT", "60s")
+
+	cfg := NewConfig().WithEnv()
+
+	if cfg.Claude.Timeout != 60*time.Second {
+		t.Errorf("Claude.Timeout = %v, want 60s", cfg.Claude.Timeout)
+	}
+}
+
+// TestConfig_WithEnv_ClaudeTimeout_InvalidIgnored verifies invalid timeout is ignored.
+func TestConfig_WithEnv_ClaudeTimeout_InvalidIgnored(t *testing.T) {
+	t.Setenv("WINGMATE_CLAUDE_TIMEOUT", "invalid")
+
+	cfg := NewConfig().WithEnv()
+
+	// Should remain zero (invalid value ignored)
+	if cfg.Claude.Timeout != 0 {
+		t.Errorf("Claude.Timeout = %v, want 0 (invalid ignored)", cfg.Claude.Timeout)
+	}
+}
+
+// TestConfig_WithEnv_ClaudeSystemPrompt verifies WINGMATE_CLAUDE_SYSTEM_PROMPT override.
+func TestConfig_WithEnv_ClaudeSystemPrompt(t *testing.T) {
+	t.Setenv("WINGMATE_CLAUDE_SYSTEM_PROMPT", "Custom prompt")
+
+	cfg := NewConfig().WithEnv()
+
+	if cfg.Claude.SystemPrompt != "Custom prompt" {
+		t.Errorf("Claude.SystemPrompt = %q, want 'Custom prompt'", cfg.Claude.SystemPrompt)
+	}
+}
+
+// TestConfig_WithDefaults_ClaudeTimeout verifies default timeout is applied.
+func TestConfig_WithDefaults_ClaudeTimeout(t *testing.T) {
+	cfg := NewConfig().WithDefaults()
+
+	if cfg.Claude.Timeout != DefaultClaudeTimeout {
+		t.Errorf("Claude.Timeout = %v, want %v", cfg.Claude.Timeout, DefaultClaudeTimeout)
+	}
+}
+
+// TestConfig_WithDefaults_ClaudeSystemPrompt verifies default system prompt.
+func TestConfig_WithDefaults_ClaudeSystemPrompt(t *testing.T) {
+	cfg := NewConfig().WithDefaults()
+
+	if cfg.Claude.SystemPrompt != DefaultClaudeSystemPrompt {
+		t.Errorf("Claude.SystemPrompt = %q, want default", cfg.Claude.SystemPrompt)
+	}
+}
+
+// TestConfig_WithDefaults_ClaudeSystemPrompt_PreservesCustom verifies custom prompt preserved.
+func TestConfig_WithDefaults_ClaudeSystemPrompt_PreservesCustom(t *testing.T) {
+	cfg := &Config{
+		Name: "test",
+		Claude: ClaudeConfig{
+			SystemPrompt: "Custom prompt",
+		},
+	}
+
+	result := cfg.WithDefaults()
+
+	if result.Claude.SystemPrompt != "Custom prompt" {
+		t.Errorf("Claude.SystemPrompt = %q, want 'Custom prompt'", result.Claude.SystemPrompt)
+	}
+}
+
+// TestConfig_Validate_CLIPathValid verifies valid CLI path passes validation.
+func TestConfig_Validate_CLIPathValid(t *testing.T) {
+	// Create a temp file to act as the CLI
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "claude")
+	if err := os.WriteFile(cliPath, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	cfg := Config{
+		Name: "test",
+		Port: 9000,
+		Claude: ClaudeConfig{
+			CLIPath: cliPath,
+			Timeout: 60 * time.Second,
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+// TestConfig_Validate_CLIPathInvalid verifies invalid CLI path fails validation.
+func TestConfig_Validate_CLIPathInvalid(t *testing.T) {
+	cfg := Config{
+		Name: "test",
+		Port: 9000,
+		Claude: ClaudeConfig{
+			CLIPath: "/nonexistent/path/to/claude",
+			Timeout: 60 * time.Second,
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() error = nil, want error for invalid CLI path")
+	}
+}
+
+// TestConfig_Validate_CLIPathEmpty verifies empty CLI path passes (auto-detect).
+func TestConfig_Validate_CLIPathEmpty(t *testing.T) {
+	cfg := Config{
+		Name: "test",
+		Port: 9000,
+		Claude: ClaudeConfig{
+			CLIPath: "", // Empty = auto-detect from PATH
+			Timeout: 60 * time.Second,
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil for empty CLI path", err)
+	}
+}
+
+// TestConfig_Validate_TimeoutPositive verifies positive timeout passes.
+func TestConfig_Validate_TimeoutPositive(t *testing.T) {
+	cfg := Config{
+		Name: "test",
+		Port: 9000,
+		Claude: ClaudeConfig{
+			Timeout: 60 * time.Second,
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+// TestConfig_Validate_TimeoutZero verifies zero timeout passes (use default).
+func TestConfig_Validate_TimeoutZero(t *testing.T) {
+	cfg := Config{
+		Name: "test",
+		Port: 9000,
+		Claude: ClaudeConfig{
+			Timeout: 0, // Zero = use default
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil for zero timeout", err)
+	}
+}
+
+// TestConfig_Validate_TimeoutNegative verifies negative timeout fails.
+func TestConfig_Validate_TimeoutNegative(t *testing.T) {
+	cfg := Config{
+		Name: "test",
+		Port: 9000,
+		Claude: ClaudeConfig{
+			Timeout: -1 * time.Second,
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() error = nil, want error for negative timeout")
+	}
+}
+
+// TestConfig_Clone_ClonesClaudeConfig verifies ClaudeConfig is deep copied.
+func TestConfig_Clone_ClonesClaudeConfig(t *testing.T) {
+	original := Config{
+		Name: "original",
+		Port: 9000,
+		Claude: ClaudeConfig{
+			CLIPath:      "/usr/bin/claude",
+			Model:        "sonnet",
+			Timeout:      60 * time.Second,
+			SystemPrompt: "Original prompt",
+		},
+	}
+
+	cloned := original.Clone()
+
+	// Modify clone
+	cloned.Claude.CLIPath = "/other/claude"
+	cloned.Claude.Model = "opus"
+	cloned.Claude.Timeout = 120 * time.Second
+	cloned.Claude.SystemPrompt = "Changed prompt"
+
+	// Original should be unchanged
+	if original.Claude.CLIPath != "/usr/bin/claude" {
+		t.Errorf("Original Claude.CLIPath changed to %q", original.Claude.CLIPath)
+	}
+
+	if original.Claude.Model != "sonnet" {
+		t.Errorf("Original Claude.Model changed to %q", original.Claude.Model)
+	}
+
+	if original.Claude.Timeout != 60*time.Second {
+		t.Errorf("Original Claude.Timeout changed to %v", original.Claude.Timeout)
+	}
+
+	if original.Claude.SystemPrompt != "Original prompt" {
+		t.Errorf("Original Claude.SystemPrompt changed to %q", original.Claude.SystemPrompt)
+	}
+}
+
+// TestConfig_FullLifecycle tests the complete config lifecycle.
+func TestConfig_FullLifecycle(t *testing.T) {
+	// Create temp CLI file
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "claude")
+	if err := os.WriteFile(cliPath, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	// Set environment
+	t.Setenv("WINGMATE_NAME", "lifecycle-test")
+	t.Setenv("WINGMATE_CLAUDE_CLI_PATH", cliPath)
+	t.Setenv("WINGMATE_CLAUDE_MODEL", "opus")
+	t.Setenv("WINGMATE_CLAUDE_TIMEOUT", "180s")
+
+	// Full lifecycle: new → env → defaults → validate → clone
+	cfg := NewConfig().WithEnv().WithDefaults()
+
+	// Validate
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	// Clone
+	cloned := cfg.Clone()
+
+	// Verify values
+	if cloned.Name != "lifecycle-test" {
+		t.Errorf("Name = %q, want lifecycle-test", cloned.Name)
+	}
+
+	if cloned.Claude.CLIPath != cliPath {
+		t.Errorf("Claude.CLIPath = %q, want %q", cloned.Claude.CLIPath, cliPath)
+	}
+
+	if cloned.Claude.Model != "opus" {
+		t.Errorf("Claude.Model = %q, want opus", cloned.Claude.Model)
+	}
+
+	if cloned.Claude.Timeout != 180*time.Second {
+		t.Errorf("Claude.Timeout = %v, want 180s", cloned.Claude.Timeout)
+	}
+
+	// System prompt should have default (not set in env)
+	if cloned.Claude.SystemPrompt != DefaultClaudeSystemPrompt {
+		t.Errorf("Claude.SystemPrompt = %q, want default", cloned.Claude.SystemPrompt)
 	}
 }

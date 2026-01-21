@@ -53,11 +53,14 @@ func TestAgent_HandleMessage_Ping(t *testing.T) {
 	}
 }
 
-// TestAgent_HandleMessage_Unknown verifies unknown message returns error.
-func TestAgent_HandleMessage_Unknown(t *testing.T) {
+// TestAgent_HandleMessage_NonPingWithoutCLI verifies non-ping message returns error when no CLI.
+// Note: This test was previously named TestAgent_HandleMessage_Unknown.
+// With LLM integration, non-ping messages are routed to LLM if available.
+// When CLI is not available, error 2001 (CodeLLMUnavailable) is returned.
+func TestAgent_HandleMessage_NonPingWithoutCLI(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &Config{
-		Name:    "unknown-test-agent",
+		Name:    "no-cli-test-agent",
 		Port:    0,
 		LogFile: filepath.Join(dir, "flight.jsonl"),
 	}
@@ -68,17 +71,20 @@ func TestAgent_HandleMessage_Unknown(t *testing.T) {
 	}
 	defer agent.Shutdown(context.Background())
 
-	// Send unknown message
-	unknownMsg := &types.Message{
+	// Explicitly set llmExecutor to nil to simulate no CLI installed
+	agent.llmExecutor = nil
+
+	// Send non-ping message
+	textMsg := &types.Message{
 		Role: "user",
 		Parts: []types.Part{
-			{Kind: "text", Text: "unknown command"},
+			{Kind: "text", Text: "What is Go?"},
 		},
 	}
 
-	_, err = agent.HandleMessage(context.Background(), unknownMsg)
+	_, err = agent.HandleMessage(context.Background(), textMsg)
 	if err == nil {
-		t.Error("Expected error for unknown message")
+		t.Error("Expected error for non-ping message when CLI unavailable")
 	}
 }
 

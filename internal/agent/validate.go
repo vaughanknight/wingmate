@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"net/url"
+	"os"
 )
 
 // ValidationError represents a configuration validation error.
@@ -47,6 +48,28 @@ func (c *Config) Validate() error {
 				fmt.Sprintf("invalid URL %q: %v", peer, err),
 			)
 		}
+	}
+
+	// Validate Claude CLI configuration
+	if err := c.validateClaudeConfig(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateClaudeConfig validates the Claude CLI configuration.
+func (c *Config) validateClaudeConfig() error {
+	// If CLIPath is set, verify it exists
+	if c.Claude.CLIPath != "" {
+		if _, err := os.Stat(c.Claude.CLIPath); os.IsNotExist(err) {
+			return NewValidationError("claude.cliPath", fmt.Sprintf("file not found: %s", c.Claude.CLIPath))
+		}
+	}
+
+	// Timeout must be non-negative (0 means use default)
+	if c.Claude.Timeout < 0 {
+		return NewValidationError("claude.timeout", "must be non-negative")
 	}
 
 	return nil
