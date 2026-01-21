@@ -3,3 +3,19 @@ dist/
 .wingmate/
 *.log
 .DS_Store
+# Build output
+bin/
+*.exe
+
+# Flight logs (local data)
+flight.jsonl
+*.jsonl
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

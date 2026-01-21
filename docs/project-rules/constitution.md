@@ -14,7 +14,7 @@ Outstanding TODOs:
 Supporting docs created: rules.md, idioms.md, architecture.md
 -->
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Ratification Date:** 2026-01-21
 **Last Amended:** 2026-01-21
 
@@ -144,6 +144,38 @@ A feature is complete when:
 - **Technical decisions**: Maintainers with input from contributors
 - **Doctrine changes**: Require explicit review and approval
 - **Security matters**: Elevated review; no shortcuts
+
+### 4.5 Architecture Decision Records (ADRs)
+
+Significant technical decisions MUST be documented as ADRs in `docs/adr/`.
+
+**When to Write an ADR**:
+- Language, framework, or major library choices
+- Data storage format or persistence strategy decisions
+- Protocol or API design decisions
+- Security architecture choices
+- Any decision that constrains future implementation options
+
+**ADR Requirements**:
+- MUST use the template at `docs/adr/000-template.md`
+- MUST include machine-readable YAML context block (for AI assistant parsing)
+- MUST reference relevant constitution principles
+- MUST document constraints imposed by the decision
+- SHOULD list affected components and impact level
+
+**ADR Lifecycle**:
+1. **PROPOSED**: Draft for discussion
+2. **DECIDED**: Approved and binding
+3. **SUPERSEDED**: Replaced by newer ADR (link required)
+4. **DEPRECATED**: No longer applicable
+
+**Compliance**:
+- Code changes MUST comply with DECIDED ADRs
+- ADR violations require either code change or ADR amendment
+- New features affecting existing ADRs MUST update relevant ADR status
+
+**Machine-Readable Context**:
+Each ADR includes a YAML block at the bottom for efficient AI parsing. This enables Claude to quickly understand constraints and implementation status without reading full prose. See `CLAUDE.md` for parsing guidance.
 
 <!-- USER CONTENT START -->
 <!-- Add project-specific governance requirements here -->

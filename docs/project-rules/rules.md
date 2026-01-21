@@ -228,7 +228,7 @@ test('given valid message when sending then receives acknowledgment', () => {
 
 ### 5.1 Agent Cards
 
-- MUST expose Agent Card at well-known URL (`.well-known/agent-card.json`)
+- MUST expose Agent Card at well-known URL (`/.well-known/agent.json`)
 - MUST declare capabilities accurately
 - MUST specify supported authentication methods
 - SHOULD include meaningful description

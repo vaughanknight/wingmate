@@ -17,8 +17,8 @@
 │                                                                             │
 │   Machine A (e.g., Server)              Machine B (e.g., Client/Device)    │
 │   ┌─────────────────────┐              ┌─────────────────────┐             │
-│   │    PILOT AGENT      │◄────A2A─────►│   WINGMATE AGENT    │             │
-│   │                     │   Protocol   │                     │             │
+│   │      AGENT          │◄────A2A─────►│      AGENT          │             │
+│   │  (peer instance)    │   Protocol   │  (peer instance)    │             │
 │   │  ┌───────────────┐  │              │  ┌───────────────┐  │             │
 │   │  │  Claude API   │  │              │  │  Claude API   │  │             │
 │   │  └───────────────┘  │              │  └───────────────┘  │             │
@@ -105,44 +105,48 @@
 ### 2.3 Module Boundaries
 
 ```
-src/
-├── pilot/                  # Pilot-specific logic (initiator)
-│   ├── pilot_agent.py      # PilotAgent class
-│   ├── mission.py          # Mission orchestration
-│   └── __init__.py
+wingmate/
+├── cmd/
+│   └── wingmate/           # Main entry point
+│       └── main.go         # CLI entry point
 │
-├── wingmate/               # Wingmate-specific logic (responder)
-│   ├── wingmate_agent.py   # WingmateAgent class
-│   ├── handlers.py         # Request handlers
-│   └── __init__.py
+├── internal/
+│   ├── agent/              # Unified agent (see ADR-003)
+│   │   ├── agent.go        # Agent struct - both client + server
+│   │   ├── server.go       # A2A server (handle incoming requests)
+│   │   ├── client.go       # A2A client (make outgoing requests)
+│   │   ├── conversation.go # Conversation/mission management
+│   │   └── config.go       # Configuration management
+│   │
+│   ├── protocol/           # A2A protocol implementation
+│   │   ├── client.go       # A2A HTTP client
+│   │   ├── server.go       # A2A HTTP server
+│   │   ├── messages.go     # Message types
+│   │   └── jsonrpc.go      # JSON-RPC 2.0 implementation
+│   │
+│   └── flightlog/          # Flight Log and tracing
+│       ├── flightlog.go    # FlightLog struct and methods
+│       └── entry.go        # Log entry types
 │
-├── common/                 # Shared code (BOTH can use)
-│   ├── agent_base.py       # Base agent functionality
-│   ├── config.py           # Configuration management
-│   └── __init__.py
+├── pkg/                    # Public packages (if needed by external tools)
+│   └── types/              # Shared types for external use
+│       └── agentcard.go    # Agent Card types
 │
-├── protocol/               # A2A protocol implementation
-│   ├── client.py           # A2A client wrapper
-│   ├── server.py           # A2A server wrapper
-│   ├── messages.py         # Message types
-│   └── __init__.py
+├── config/                 # Configuration templates
+│   └── agent.example.json
 │
-├── observability/          # Flight Log and tracing
-│   ├── flight_log.py       # FlightLog class
-│   ├── trace.py            # OpenTelemetry integration
-│   └── __init__.py
-│
-└── tools/                  # MCP tool implementations
-    ├── system_metrics.py   # CPU, memory, etc.
-    ├── log_reader.py       # Read application logs
-    └── __init__.py
+├── go.mod                  # Go module definition
+├── go.sum                  # Dependency checksums
+└── Makefile                # Build targets for cross-compilation
 ```
 
 **Dependency Rules:**
-- `pilot/` and `wingmate/` MAY depend on `common/`, `protocol/`, `observability/`
-- `pilot/` MUST NOT depend on `wingmate/` (and vice versa)
-- `protocol/` MUST NOT depend on `pilot/` or `wingmate/`
-- `observability/` MUST NOT depend on `pilot/` or `wingmate/`
+- `internal/agent/` MAY import `internal/protocol/`, `internal/flightlog/`
+- `internal/protocol/` MUST NOT import `internal/agent/`
+- `internal/flightlog/` MUST NOT import `internal/agent/`
+- `pkg/` packages are for external consumption; `internal/` packages are private
+
+**Note:** Per [ADR-003](../adr/003-unified-peer-architecture.md), there are no separate `internal/pilot/` or `internal/wingmate/` directories. Every agent instance can act as either pilot (initiator) or wingmate (responder) in any conversation.
 
 <!-- USER CONTENT START -->
 <!-- Add project-specific component details here -->
@@ -283,10 +287,10 @@ src/
 
 | Dependency | Purpose | Interface |
 |------------|---------|-----------|
-| **Claude API** | LLM reasoning | Anthropic SDK / HTTP API |
-| **A2A SDK** | Agent communication | Python: `a2a-python`, TS: `a2a-js` |
+| **Claude API** | LLM reasoning | HTTP API (or Go SDK when available) |
+| **A2A Protocol** | Agent communication | Direct implementation or `a2aproject/a2a-go` |
 | **MCP** | Local tool access | MCP protocol (when needed) |
-| **OpenTelemetry** | Distributed tracing | OTel SDK (optional) |
+| **OpenTelemetry** | Distributed tracing | `go.opentelemetry.io/otel` (optional) |
 
 ### 4.2 Integration Architecture
 
@@ -378,55 +382,84 @@ src/
 
 ### 5.1 Installation Model
 
+**Option A: Download Pre-built Binary (Recommended)**
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    INSTALLATION FLOW                             │
+│                    BINARY INSTALLATION                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   1. Download binary for your platform                          │
+│      $ curl -LO https://github.com/<org>/wingmate/releases/     │
+│              latest/download/wingmate-linux-amd64               │
+│      $ chmod +x wingmate-linux-amd64                            │
+│      $ mv wingmate-linux-amd64 /usr/local/bin/wingmate          │
+│                                                                  │
+│   2. Run (no dependencies needed!)                               │
+│      $ wingmate --port 9001 --peers https://other:9000          │
+│                                                                  │
+│   3. Upgrade                                                     │
+│      $ curl -LO <new-release-url>                               │
+│      $ mv wingmate-new /usr/local/bin/wingmate                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Option B: Build from Source**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    BUILD FROM SOURCE                             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │   1. Clone repository                                           │
 │      $ git clone https://github.com/<org>/wingmate.git          │
 │                                                                  │
-│   2. Install dependencies                                        │
-│      $ cd wingmate && pip install -r requirements.txt           │
-│      (or npm install for TypeScript)                            │
+│   2. Build (requires Go 1.21+)                                  │
+│      $ cd wingmate && go build -o wingmate ./cmd/wingmate       │
 │                                                                  │
-│   3. Configure agent                                             │
-│      $ cp config/agent-config.example.json config/agent.json    │
+│   3. Cross-compile for other platforms                          │
+│      $ make build-linux    # Linux amd64                        │
+│      $ make build-darwin   # macOS arm64                        │
+│      $ make build-windows  # Windows amd64                      │
+│      $ make build-android  # Android arm64                      │
+│                                                                  │
+│   4. Configure (optional)                                        │
+│      $ cp config/agent.example.json config/agent.json           │
 │      $ $EDITOR config/agent.json                                │
 │                                                                  │
-│   4. Start agent                                                 │
-│      $ python -m wingmate.run --mode pilot                      │
-│      (or --mode wingmate on the other machine)                  │
+│   5. Run                                                         │
+│      $ ./wingmate --port 9000 --peers https://other:9001        │
 │                                                                  │
-│   5. Upgrade                                                     │
-│      $ git pull && pip install -r requirements.txt              │
-│      $ systemctl restart wingmate  # if using systemd           │
+│   6. Upgrade                                                     │
+│      $ git pull && go build -o wingmate ./cmd/wingmate          │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 5.2 Deployment Topology
 
-**Scenario: Server debugging Client**
+**Scenario: Server and Client debugging each other**
 ```
 ┌──────────────────┐              ┌──────────────────┐
 │    SERVER        │              │    CLIENT        │
 │  (Data Center)   │              │  (User Machine)  │
 │                  │              │                  │
 │  ┌────────────┐  │              │  ┌────────────┐  │
-│  │   PILOT    │  │◄────TLS─────►│  │  WINGMATE  │  │
-│  │   AGENT    │  │   A2A       │  │   AGENT    │  │
+│  │   AGENT    │  │◄────TLS─────►│  │   AGENT    │  │
+│  │            │  │   A2A       │  │            │  │
 │  └────────────┘  │              │  └────────────┘  │
 │        │         │              │        │         │
 │  ┌─────▼──────┐  │              │  ┌─────▼──────┐  │
 │  │ Flight Log │  │              │  │ Flight Log │  │
 │  └────────────┘  │              │  └────────────┘  │
 │                  │              │        │         │
-│                  │              │  ┌─────▼──────┐  │
-│                  │              │  │ Local Logs │  │
+│  Either can      │              │  ┌─────▼──────┐  │
+│  initiate!       │              │  │ Local Logs │  │
 │                  │              │  │ & Metrics  │  │
 │                  │              │  └────────────┘  │
 └──────────────────┘              └──────────────────┘
+
+Server asks: "What error did you see?"  → Server is pilot
+Client asks: "What did my request return?" → Client is pilot
 ```
 
 **Scenario: Mobile-to-Mobile debugging**
@@ -435,14 +468,16 @@ src/
 │  ANDROID DEV A   │              │  ANDROID DEV B   │
 │                  │              │                  │
 │  ┌────────────┐  │              │  ┌────────────┐  │
-│  │   PILOT    │  │◄────WiFi────►│  │  WINGMATE  │  │
-│  │   AGENT    │  │   A2A       │  │   AGENT    │  │
+│  │   AGENT    │  │◄────WiFi────►│  │   AGENT    │  │
+│  │            │  │   A2A       │  │            │  │
 │  └────────────┘  │              │  └────────────┘  │
 │        │         │              │        │         │
 │  ┌─────▼──────┐  │              │  ┌─────▼──────┐  │
 │  │ Flight Log │  │              │  │ Flight Log │  │
 │  └────────────┘  │              │  └────────────┘  │
 └──────────────────┘              └──────────────────┘
+
+Either device can ask the other for help debugging.
 ```
 
 ### 5.3 Configuration
@@ -450,9 +485,12 @@ src/
 **Minimal Configuration (config/agent.json):**
 ```json
 {
-  "mode": "wingmate",
-  "name": "wingmate-device-01",
+  "name": "agent-device-01",
   "port": 9000,
+  "peers": [
+    "https://machineB:9001",
+    "https://machineC:9002"
+  ],
   "tls": {
     "enabled": true,
     "cert": "/path/to/cert.pem",
@@ -467,12 +505,14 @@ src/
     "model": "claude-sonnet-4-20250514"
   },
   "flight_log": {
-    "path": "./logs/flight.log",
+    "path": "./logs/flight.jsonl",
     "level": "info"
   },
   "capabilities": ["GetMetrics", "GetLogs"]
 }
 ```
+
+**Note:** There is no `mode` field. Every agent can both receive requests (act as wingmate) and send requests to peers (act as pilot). See [ADR-003](../adr/003-unified-peer-architecture.md).
 
 <!-- USER CONTENT START -->
 <!-- Add project-specific deployment details here -->
@@ -577,12 +617,14 @@ When reviewing PRs, verify:
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **Primary Language** | Python or TypeScript | Best A2A SDK support, team familiarity |
+| **Primary Language** | **Go** | Single binary distribution, cross-compilation, no runtime dependencies |
 | **Protocol** | A2A | Standard for agent-to-agent, vendor-neutral |
 | **Local Tools** | MCP (optional) | Standard for agent-to-tool, complements A2A |
 | **Tracing** | OpenTelemetry | Industry standard, A2A has native support |
+| **Build System** | Makefile | Standard for Go projects, cross-compilation targets |
+| **Config Format** | JSON | No dependencies, matches Agent Card format |
 
-*Decisions to be finalized based on implementation phase requirements.*
+*See ADR-001 in `docs/plans/001-minimal-skeleton/minimal-skeleton-spec.md` for language decision rationale.*
 
 ---
 

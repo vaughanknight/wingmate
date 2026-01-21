@@ -1,0 +1,14 @@
+{
+  "name": "my-agent",
+  "port": 9000,
+  "peers": [
+    "http://localhost:9001",
+    "http://localhost:9002"
+  ],
+  "logFile": "./flight.jsonl",
+  "verbose": false,
+  "capabilities": [
+    "ping",
+    "streaming"
+  ]
+}
