@@ -21,8 +21,10 @@ wingmate/
 ├── cmd/wingmate/main.go      # Single binary entry point
 ├── internal/
 │   ├── agent/                # Unified agent (can be pilot OR wingmate per conversation)
-│   ├── protocol/             # A2A JSON-RPC implementation
-│   └── flightlog/            # Observability logging
+│   ├── flightlog/            # Observability logging
+│   ├── llm/                  # LLM integration (Claude CLI executor)
+│   ├── mcp/                  # MCP server for Claude Code integration
+│   └── protocol/             # A2A JSON-RPC implementation
 ├── pkg/types/                # Public types (AgentCard, etc.)
 └── config/                   # Configuration templates
 ```
@@ -38,8 +40,69 @@ Before making changes, consult the Architecture Decision Records in `docs/adr/`:
 | [001](docs/adr/001-language-choice.md) | **Go** | Single binary, cross-platform compilation |
 | [002](docs/adr/002-flight-log-storage.md) | **JSONL + stdout** | File at `./flight.jsonl`, `--verbose` for stdout |
 | [003](docs/adr/003-unified-peer-architecture.md) | **Unified Peers** | No `--mode` flag; pilot/wingmate are conversation roles |
+| [004](docs/adr/004-mcp-server-implementation.md) | **MCP Server** | stdio transport, Flight Log integration, 3 tools |
 
 **Reading ADRs efficiently**: Each ADR has a machine-readable YAML block at the bottom under `MACHINE-READABLE CONTEXT`. Parse this section for quick structured context about constraints, affected components, and implementation status.
+
+## MCP Server
+
+Wingmate can run as an MCP (Model Context Protocol) server for Claude Code integration. This enables Claude Code to invoke Wingmate tools directly.
+
+### Running MCP Mode
+
+```bash
+# Basic MCP server (stdio transport)
+wingmate mcp
+
+# With verbose logging to stderr
+wingmate mcp --verbose
+```
+
+### Tools Exposed
+
+| Tool | Purpose |
+|------|---------|
+| `wingmate_chat` | Send messages through LLM integration |
+| `wingmate_status` | Get operational status and health |
+| `wingmate_discover` | Discover available agents |
+
+### MCP Error Codes
+
+When working on MCP-related code, use these error codes (`internal/mcp/errors.go`):
+
+| Code | Name | When to Use |
+|------|------|-------------|
+| 3001 | MCPInvalidRequest | Malformed JSON-RPC request |
+| 3002 | MCPMethodNotFound | Unknown method/tool called |
+| 3003 | MCPInvalidParams | Invalid tool parameters |
+| 3004 | MCPInternalError | Unrecoverable server error |
+| 3010 | MCPToolNotFound | Tool not registered |
+| 3011 | MCPToolExecutionFailed | Tool handler returned error |
+| 3020 | MCPTransportError | stdin/stdout I/O error |
+| 3021 | MCPParseError | Cannot parse JSON message |
+| 3022 | MCPShutdown | Server shutting down |
+
+### Key MCP Files
+
+| File | Purpose |
+|------|---------|
+| `internal/mcp/server.go` | Server lifecycle, message routing |
+| `internal/mcp/transport.go` | NDJSON over stdio |
+| `internal/mcp/tools.go` | Tool definitions and schema |
+| `internal/mcp/handlers.go` | Tool execution handlers |
+| `internal/mcp/types.go` | Protocol types (ServerInfo, ToolDefinition, etc.) |
+| `internal/mcp/errors.go` | Error codes and MCPError type |
+
+### Configuration
+
+Environment variables for MCP mode:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WINGMATE_LLM_MODEL` | Claude model for chat tool | CLI default |
+| `WINGMATE_LLM_TIMEOUT` | Request timeout (seconds) | `120` |
+
+For detailed setup, see [docs/how/mcp-setup.md](docs/how/mcp-setup.md).
 
 ## Constitution Principles
 
@@ -86,8 +149,17 @@ GOOS=linux GOARCH=amd64 go build -o wingmate-linux ./cmd/wingmate
 # Run standalone (no peers, just accepts incoming)
 ./wingmate --port 9001
 
+# Run MCP server for Claude Code integration
+./wingmate mcp
+
+# Run MCP server with verbose logging
+./wingmate mcp --verbose
+
 # Run tests
 go test ./...
+
+# Run tests with race detector
+go test ./... -race
 ```
 
 ## Key File Locations
@@ -101,6 +173,8 @@ go test ./...
 | ADRs | `docs/adr/*.md` |
 | Feature Specs | `docs/plans/*/` |
 | Research | `docs/research/` |
+| MCP Setup Guide | `docs/how/mcp-setup.md` |
+| LLM Setup Guide | `docs/how/llm-setup.md` |
 
 ## Before Making Changes
 

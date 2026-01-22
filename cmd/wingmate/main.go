@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/wingmate/wingmate/internal/agent"
+	"github.com/wingmate/wingmate/internal/flightlog"
+	"github.com/wingmate/wingmate/internal/llm"
+	"github.com/wingmate/wingmate/internal/mcp"
 )
 
 // Exit codes.
@@ -65,6 +68,8 @@ func run() int {
 	switch command {
 	case "":
 		return runServer(cfg)
+	case "mcp":
+		return runMCP(cfg)
 	case "ping":
 		if len(cmdArgs) < 1 {
 			fmt.Fprintln(os.Stderr, "Usage: wingmate ping <peer-url>")
@@ -100,11 +105,18 @@ Options:
 
 Commands:
   (none)              Start agent server
+  mcp                 Start MCP server (stdio transport for Claude Code)
   ping <peer-url>     Send ping to a peer
   status <peer-url>   Fetch peer's Agent Card
 
+Environment Variables (for mcp command):
+  WINGMATE_LLM_MODEL    Claude model to use (default: CLI default)
+  WINGMATE_LLM_TIMEOUT  CLI timeout in seconds (default: 120)
+
 Examples:
   wingmate --port 9000 --name my-agent
+  wingmate mcp
+  wingmate mcp --verbose
   wingmate ping http://localhost:9001 --name sender
   wingmate status http://localhost:9001
 `)
@@ -312,6 +324,130 @@ func runStatus(cfg *agent.Config, peerURL string) int {
 		for _, skill := range card.Skills {
 			fmt.Printf("  - %s: %s\n", skill.Name, skill.Description)
 		}
+	}
+
+	return ExitSuccess
+}
+
+// mcpLoggerAdapter adapts flightlog.FlightLog to the mcp.Logger interface.
+// The mcp.Logger uses Record(any) while flightlog uses Record(Entry).
+// This adapter converts any (typically map[string]any) to a Flight Log Entry.
+type mcpLoggerAdapter struct {
+	fl      *flightlog.FlightLog
+	agentID string
+}
+
+// Record converts the entry to a flightlog.Entry and records it.
+func (a *mcpLoggerAdapter) Record(entry any) error {
+	// Handle map[string]any entries from MCP handlers
+	if m, ok := entry.(map[string]any); ok {
+		summary := ""
+		if s, ok := m["summary"].(string); ok {
+			summary = s
+		} else if s, ok := m["event"].(string); ok {
+			summary = s
+		}
+		flEntry := flightlog.NewEntry(context.Background(), a.agentID, flightlog.Outbound, summary, m)
+		return a.fl.Record(flEntry)
+	}
+	// For other types, wrap in a generic entry
+	flEntry := flightlog.NewEntry(context.Background(), a.agentID, flightlog.Outbound, "mcp event", entry)
+	return a.fl.Record(flEntry)
+}
+
+// Close closes the underlying Flight Log.
+func (a *mcpLoggerAdapter) Close() error {
+	return a.fl.Close()
+}
+
+// runMCP runs the MCP server on stdio transport.
+// This enables Claude Code integration via ~/.claude.json configuration.
+func runMCP(cfg *agent.Config) int {
+	startTime := time.Now()
+
+	// Read environment variables for LLM configuration
+	model := os.Getenv("WINGMATE_LLM_MODEL")
+	timeoutStr := os.Getenv("WINGMATE_LLM_TIMEOUT")
+	timeout := 120 * time.Second
+	if timeoutStr != "" {
+		if secs, err := time.ParseDuration(timeoutStr + "s"); err == nil {
+			timeout = secs
+		}
+	}
+
+	// Create LLM executor with configuration
+	executorOpts := []llm.Option{llm.WithTimeout(timeout)}
+	if model != "" {
+		executorOpts = append(executorOpts, llm.WithModel(model))
+	}
+	executor := llm.NewCLIExecutor(executorOpts...)
+
+	// Determine log file path
+	logPath := cfg.LogFile
+	if logPath == "" {
+		logPath = "./flight.jsonl"
+	}
+
+	// Create Flight Log with verbose support
+	var flightLogOpts []flightlog.Option
+	if cfg.Verbose {
+		// In verbose mode, write to stderr (not stdout) since stdout is for MCP
+		flightLogOpts = append(flightLogOpts, flightlog.WithVerbose(true), flightlog.WithStdout(os.Stderr))
+	}
+
+	fl, err := flightlog.New(logPath, flightLogOpts...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create Flight Log: %v\n", err)
+		return ExitInternal
+	}
+	defer fl.Close()
+
+	// Create MCP logger adapter
+	agentID := cfg.Name
+	if agentID == "" {
+		agentID = "wingmate-mcp"
+	}
+	logger := &mcpLoggerAdapter{fl: fl, agentID: agentID}
+
+	// Create MCP transport (stdin/stdout)
+	transport := mcp.NewTransport(os.Stdin, os.Stdout)
+
+	// Create MCP server
+	server := mcp.NewServerWithLogger(
+		mcp.ServerConfig{
+			Name:    "wingmate",
+			Version: "0.1.0",
+		},
+		transport,
+		logger,
+	)
+
+	// Register default tools
+	for _, tool := range mcp.DefaultTools() {
+		server.RegisterTool(tool)
+	}
+
+	// Register handlers
+	server.RegisterHandler(mcp.ToolNameChat, mcp.NewChatHandler(executor, nil, logger))
+	server.RegisterHandler(mcp.ToolNameStatus, mcp.NewStatusHandler(executor, startTime))
+	server.RegisterHandler(mcp.ToolNameDiscover, mcp.NewDiscoverHandler(agentID))
+
+	// Setup signal handling for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	// Run server (blocks until context is cancelled or EOF)
+	if err := server.Run(ctx); err != nil && err != context.Canceled {
+		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
+		return ExitInternal
 	}
 
 	return ExitSuccess

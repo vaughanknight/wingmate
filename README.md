@@ -91,11 +91,13 @@ Options:
 
 Commands:
   (none)              Start agent server
+  mcp                 Start MCP server (for Claude Code)
   ping <peer-url>     Send ping to a peer
   status <peer-url>   Fetch peer's Agent Card
 
 Examples:
   wingmate --port 9000 --name my-agent
+  wingmate mcp
   wingmate ping http://localhost:9001 --name sender
   wingmate status http://localhost:9001
 ```
@@ -226,6 +228,58 @@ Configure LLM behavior via environment variables or config file:
 
 For detailed setup instructions, see [docs/how/llm-setup.md](docs/how/llm-setup.md).
 
+## MCP Server (Claude Code Integration)
+
+Wingmate can run as an MCP (Model Context Protocol) server, enabling Claude Code to use Wingmate tools directly.
+
+### Quick Setup
+
+1. **Build Wingmate**
+   ```bash
+   go build -o wingmate ./cmd/wingmate
+   sudo mv wingmate /usr/local/bin/
+   ```
+
+2. **Configure Claude Code** - Add to `~/.claude.json`:
+   ```json
+   {
+     "mcpServers": {
+       "wingmate": {
+         "command": "/usr/local/bin/wingmate",
+         "args": ["mcp"],
+         "type": "stdio"
+       }
+     }
+   }
+   ```
+
+3. **Restart Claude Code** - The `wingmate_chat`, `wingmate_status`, and `wingmate_discover` tools become available.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `wingmate_chat` | Send chat messages through Wingmate's LLM integration |
+| `wingmate_status` | Get Wingmate operational status |
+| `wingmate_discover` | Discover available Wingmate agents |
+
+### Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `WINGMATE_LLM_MODEL` | Claude model for chat | CLI default |
+| `WINGMATE_LLM_TIMEOUT` | Request timeout (seconds) | `120` |
+
+### Troubleshooting
+
+| Error Code | Description | Solution |
+|------------|-------------|----------|
+| 3001 | Invalid request | Check JSON format |
+| 3010 | Tool not found | Restart MCP server |
+| 3020 | Transport error | Restart Claude Code |
+
+For detailed setup instructions, see [docs/how/mcp-setup.md](docs/how/mcp-setup.md).
+
 ## Development
 
 ### Build for All Platforms
@@ -274,6 +328,8 @@ wingmate/
 ├── internal/
 │   ├── agent/          # Unified agent implementation
 │   ├── flightlog/      # Flight log (audit trail)
+│   ├── llm/            # LLM integration (Claude CLI)
+│   ├── mcp/            # MCP server (Claude Code integration)
 │   └── protocol/       # A2A protocol (server/client)
 ├── pkg/types/          # Shared types (Message, AgentCard)
 ├── config/             # Example configuration
