@@ -9,6 +9,7 @@ import (
 
 	"github.com/wingmate/wingmate/internal/flightlog"
 	"github.com/wingmate/wingmate/internal/llm"
+	"github.com/wingmate/wingmate/internal/mcp"
 	"github.com/wingmate/wingmate/internal/protocol"
 	"github.com/wingmate/wingmate/pkg/types"
 )
@@ -102,9 +103,31 @@ func New(cfg *Config) (*Agent, error) {
 		knownPeers:     make(map[string]*types.AgentCard),
 	}
 
-	// Register handler
+	// Register A2A handler
 	server.SetHandler(agent)
 	server.SetAgentCard(card)
+
+	// Initialize MCP HTTP handler for /mcp route
+	mcpSessionMgr := mcp.NewMCPSessionManager(30*time.Minute, 5*time.Minute)
+	mcpConfig := mcp.ServerConfig{
+		Name:    "wingmate",
+		Version: Version,
+	}
+	mcpHandler := mcp.NewHTTPHandler(mcpConfig, mcpSessionMgr)
+
+	// Register MCP tools
+	for _, tool := range mcp.DefaultTools() {
+		mcpHandler.RegisterTool(tool)
+	}
+
+	// Register MCP handlers
+	// Use existing llmExec (may be nil if CLI not available - handlers check IsInstalled)
+	mcpHandler.RegisterHandler(mcp.ToolNameChat, mcp.NewChatHandler(llmExec, nil, nil))
+	mcpHandler.RegisterHandler(mcp.ToolNameStatus, mcp.NewStatusHandler(llmExec, time.Now()))
+	mcpHandler.RegisterHandler(mcp.ToolNameDiscover, mcp.NewDiscoverHandler(cfg.Name, agent)) // Agent implements PeerProvider
+
+	// Register MCP handler with server (wrapped with localhost middleware for security)
+	server.SetMCPHandler(mcp.LocalhostMiddleware(mcpHandler))
 
 	return agent, nil
 }
@@ -463,5 +486,21 @@ func (a *Agent) HandleMessage(ctx context.Context, msg *types.Message) (*types.A
 	}
 }
 
-// Ensure Agent implements protocol.MessageHandler.
-var _ protocol.MessageHandler = (*Agent)(nil)
+// GetPeers implements mcp.PeerProvider.
+// Returns URLs of all known peer agents in a thread-safe manner.
+func (a *Agent) GetPeers() []string {
+	a.peersMu.RLock()
+	defer a.peersMu.RUnlock()
+
+	peers := make([]string, 0, len(a.knownPeers))
+	for url := range a.knownPeers {
+		peers = append(peers, url)
+	}
+	return peers
+}
+
+// Ensure Agent implements required interfaces.
+var (
+	_ protocol.MessageHandler = (*Agent)(nil)
+	_ mcp.PeerProvider        = (*Agent)(nil)
+)

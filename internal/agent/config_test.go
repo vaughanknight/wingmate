@@ -194,8 +194,10 @@ func TestConfig_Defaults(t *testing.T) {
 		t.Errorf("Name = %q, want minimal-agent", merged.Name)
 	}
 
-	if merged.Port != DefaultPort {
-		t.Errorf("Port = %d, want %d (default)", merged.Port, DefaultPort)
+	// Port 0 means "auto-assign" and is preserved by WithDefaults()
+	// Since the config file didn't specify a port, it's 0 after loading
+	if merged.Port != 0 {
+		t.Errorf("Port = %d, want 0 (auto-assign)", merged.Port)
 	}
 
 	if merged.LogFile != DefaultLogFile {

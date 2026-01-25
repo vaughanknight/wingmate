@@ -153,14 +153,54 @@ wingmate/
 ```
 
 **Dependency Rules:**
-- `internal/agent/` MAY import `internal/protocol/`, `internal/flightlog/`, `internal/llm/`
+- `internal/agent/` MAY import `internal/protocol/`, `internal/flightlog/`, `internal/llm/`, `internal/mcp/`
+- `internal/mcp/` MAY import `internal/flightlog/`, `internal/llm/`
 - `internal/llm/` MAY import `internal/flightlog/`, `pkg/types/` (for message conversion)
 - `internal/protocol/` MUST NOT import `internal/agent/`
 - `internal/flightlog/` MUST NOT import `internal/agent/`
 - `internal/llm/` MUST NOT import `internal/agent/`, `internal/protocol/`
+- `internal/mcp/` MUST NOT import `internal/agent/` (use interfaces for dependency injection)
 - `pkg/` packages are for external consumption; `internal/` packages are private
 
 **Note:** Per [ADR-003](../adr/003-unified-peer-architecture.md), there are no separate `internal/pilot/` or `internal/wingmate/` directories. Every agent instance can act as either pilot (initiator) or wingmate (responder) in any conversation.
+
+### 2.4 MCP HTTP Integration
+
+The MCP server is integrated into the A2A server via HTTP transport at the `/mcp` endpoint:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    A2A SERVER HTTP ROUTES                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   /.well-known/agent.json  →  handleAgentCard()                 │
+│   /a2a                     →  handleA2A()                       │
+│   /mcp                     →  LocalhostMiddleware(MCPHandler)   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**MCP Security Model:**
+- `/mcp` endpoint is wrapped with `LocalhostMiddleware`
+- Non-localhost requests receive HTTP 403 Forbidden
+- MCP handlers access agent state via `PeerProvider` interface (dependency injection)
+
+**Dependency Flow:**
+```
+internal/agent/
+    │
+    ├──imports──► internal/mcp/ (NewHTTPHandler, LocalhostMiddleware)
+    │
+    └──implements──► mcp.PeerProvider (Agent.GetPeers())
+```
+
+**Key MCP Components:**
+| Component | File | Purpose |
+|-----------|------|---------|
+| HTTPHandler | `http_transport.go` | HTTP handler implementing `http.Handler` |
+| LocalhostMiddleware | `localhost.go` | Security wrapper returning 403 for non-localhost |
+| MCPSessionManager | `session.go` | Session management with 30-min TTL |
+| PeerProvider | `handlers.go` | Interface for peer discovery injection |
 
 <!-- USER CONTENT START -->
 <!-- Add project-specific component details here -->

@@ -135,10 +135,12 @@ func (c *Config) WithEnv() *Config {
 }
 
 // WithDefaults returns a new Config with default values for missing fields.
+// Note: Port == 0 is NOT overridden because 0 means "auto-assign" (OS picks available port).
+// Use Port: -1 if you want to explicitly signal "use default port".
 func (c *Config) WithDefaults() *Config {
 	result := c.Clone()
 
-	if result.Port == 0 {
+	if result.Port < 0 {
 		result.Port = DefaultPort
 	}
 

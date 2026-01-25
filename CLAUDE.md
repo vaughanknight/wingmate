@@ -40,22 +40,27 @@ Before making changes, consult the Architecture Decision Records in `docs/adr/`:
 | [001](docs/adr/001-language-choice.md) | **Go** | Single binary, cross-platform compilation |
 | [002](docs/adr/002-flight-log-storage.md) | **JSONL + stdout** | File at `./flight.jsonl`, `--verbose` for stdout |
 | [003](docs/adr/003-unified-peer-architecture.md) | **Unified Peers** | No `--mode` flag; pilot/wingmate are conversation roles |
-| [004](docs/adr/004-mcp-server-implementation.md) | **MCP Server** | stdio transport, Flight Log integration, 3 tools |
+| [004](docs/adr/004-mcp-server-implementation.md) | **MCP Server** | HTTP transport at /mcp, Flight Log integration, 3 tools |
 
 **Reading ADRs efficiently**: Each ADR has a machine-readable YAML block at the bottom under `MACHINE-READABLE CONTEXT`. Parse this section for quick structured context about constraints, affected components, and implementation status.
 
 ## MCP Server
 
-Wingmate can run as an MCP (Model Context Protocol) server for Claude Code integration. This enables Claude Code to invoke Wingmate tools directly.
+Wingmate exposes MCP (Model Context Protocol) tools via HTTP at the `/mcp` endpoint. This enables Claude Code to invoke Wingmate tools directly.
 
 ### Running MCP Mode
 
-```bash
-# Basic MCP server (stdio transport)
-wingmate mcp
+MCP is available automatically when running the agent:
 
-# With verbose logging to stderr
-wingmate mcp --verbose
+```bash
+# Start agent (MCP available at http://localhost:9000/mcp)
+wingmate --port 9000 --name my-agent
+```
+
+### Configuring Claude Code
+
+```bash
+claude mcp add --transport http wingmate http://localhost:9000/mcp
 ```
 
 ### Tools Exposed
@@ -64,7 +69,7 @@ wingmate mcp --verbose
 |------|---------|
 | `wingmate_chat` | Send messages through LLM integration |
 | `wingmate_status` | Get operational status and health |
-| `wingmate_discover` | Discover available agents |
+| `wingmate_discover` | Discover available peer agents |
 
 ### MCP Error Codes
 
@@ -78,7 +83,7 @@ When working on MCP-related code, use these error codes (`internal/mcp/errors.go
 | 3004 | MCPInternalError | Unrecoverable server error |
 | 3010 | MCPToolNotFound | Tool not registered |
 | 3011 | MCPToolExecutionFailed | Tool handler returned error |
-| 3020 | MCPTransportError | stdin/stdout I/O error |
+| 3020 | MCPTransportError | HTTP I/O error |
 | 3021 | MCPParseError | Cannot parse JSON message |
 | 3022 | MCPShutdown | Server shutting down |
 
@@ -86,16 +91,17 @@ When working on MCP-related code, use these error codes (`internal/mcp/errors.go
 
 | File | Purpose |
 |------|---------|
-| `internal/mcp/server.go` | Server lifecycle, message routing |
-| `internal/mcp/transport.go` | NDJSON over stdio |
+| `internal/mcp/http_transport.go` | HTTP handler implementing http.Handler |
+| `internal/mcp/localhost.go` | Localhost-only middleware (returns 403) |
+| `internal/mcp/session.go` | Session manager with 30-min TTL |
 | `internal/mcp/tools.go` | Tool definitions and schema |
-| `internal/mcp/handlers.go` | Tool execution handlers |
-| `internal/mcp/types.go` | Protocol types (ServerInfo, ToolDefinition, etc.) |
+| `internal/mcp/handlers.go` | Tool execution handlers with PeerProvider |
+| `internal/mcp/types.go` | Protocol types (ServerConfig, ServerState, etc.) |
 | `internal/mcp/errors.go` | Error codes and MCPError type |
 
 ### Configuration
 
-Environment variables for MCP mode:
+Environment variables for MCP:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -149,11 +155,8 @@ GOOS=linux GOARCH=amd64 go build -o wingmate-linux ./cmd/wingmate
 # Run standalone (no peers, just accepts incoming)
 ./wingmate --port 9001
 
-# Run MCP server for Claude Code integration
-./wingmate mcp
-
-# Run MCP server with verbose logging
-./wingmate mcp --verbose
+# Agent also serves MCP at /mcp endpoint
+# Configure Claude Code: claude mcp add --transport http wingmate http://localhost:9001/mcp
 
 # Run tests
 go test ./...

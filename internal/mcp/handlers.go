@@ -29,6 +29,14 @@ type SessionManager interface {
 	SetSession(id string, data map[string]any)
 }
 
+// PeerProvider supplies peer information for the discover tool.
+// This interface enables dependency injection from the agent package
+// without creating circular imports (agent imports mcp, so mcp cannot import agent).
+type PeerProvider interface {
+	// GetPeers returns URLs of known peer agents.
+	GetPeers() []string
+}
+
 // =============================================================================
 // wingmate_chat Handler
 // =============================================================================
@@ -146,11 +154,21 @@ type DiscoverInfo struct {
 //
 // Parameters:
 //   - agentID: This agent's unique identifier
-func NewDiscoverHandler(agentID string) ToolHandler {
+//   - peers: PeerProvider for retrieving known peer URLs (nil returns empty list)
+func NewDiscoverHandler(agentID string, peers PeerProvider) ToolHandler {
 	return func(ctx context.Context, req *ToolRequest) (*ToolResult, error) {
+		// Get peers from provider (nil-safe)
+		var peerList []string
+		if peers != nil {
+			peerList = peers.GetPeers()
+		}
+		if peerList == nil {
+			peerList = []string{}
+		}
+
 		info := DiscoverInfo{
 			AgentID: agentID,
-			Peers:   []string{}, // Will be populated when peer discovery is integrated
+			Peers:   peerList,
 		}
 
 		// Serialize to JSON

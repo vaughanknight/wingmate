@@ -12,6 +12,37 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// ServerState represents the current state of the MCP server.
+type ServerState int
+
+const (
+	// StateUninitialized indicates the server has not yet received initialize request.
+	StateUninitialized ServerState = iota
+	// StateInitializing indicates the server is processing the initialize request.
+	StateInitializing
+	// StateReady indicates the server has been initialized and is ready for requests.
+	StateReady
+	// StateShuttingDown indicates the server is shutting down.
+	StateShuttingDown
+	// StateStopped indicates the server has stopped.
+	StateStopped
+)
+
+// ServerConfig holds configuration for creating an MCP server.
+type ServerConfig struct {
+	// Name is the server name reported in initialize response.
+	Name string
+	// Version is the server version reported in initialize response.
+	Version string
+}
+
+// Logger defines the interface for Flight Log recording.
+// This allows handlers to log events per Constitution P1.
+type Logger interface {
+	Record(entry any) error
+	Close() error
+}
+
 // ServerInfo contains information about the MCP server.
 // This wraps mcp.Implementation to isolate internal code from SDK changes.
 type ServerInfo struct {

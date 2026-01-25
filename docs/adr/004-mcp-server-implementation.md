@@ -1,10 +1,11 @@
 # ADR-004: MCP Server Implementation Approach
 
-**Status**: DECIDED
+**Status**: DECIDED (Amended 2026-01-24)
 **Date**: 2026-01-22
 **Deciders**: Core maintainers
 **Supersedes**: N/A
 **Superseded by**: N/A
+**Amendments**: HTTP Transport Migration (2026-01-24)
 
 ---
 
@@ -127,12 +128,13 @@ The SDK provides 50-100x complexity reduction compared to custom implementation,
 
 ```
 internal/mcp/
-├── server.go       # MCPServer wrapping SDK
-├── tools.go        # Tool definitions using SDK types
-├── handlers.go     # Tool handlers calling LLMExecutor
-├── transport.go    # stdio transport wrapper
-├── types.go        # Internal types adapting SDK types
-└── errors.go       # Error codes 3001-3099
+├── http_transport.go  # HTTP handler implementing http.Handler
+├── localhost.go       # Localhost-only middleware (returns 403)
+├── session.go         # Session manager with 30-min TTL
+├── tools.go           # Tool definitions using SDK types
+├── handlers.go        # Tool handlers with PeerProvider interface
+├── types.go           # ServerConfig, ServerState, Logger types
+└── errors.go          # Error codes 3001-3099
 ```
 
 ### Adapter Pattern
@@ -191,6 +193,62 @@ This is the only new dependency. The SDK has no transitive external dependencies
 
 ---
 
+## Amendment: HTTP Transport Migration (2026-01-24)
+
+### Context
+
+The original ADR specified "stdio transport only (no HTTP for MCP)". This constraint has been superseded by the MCP HTTP Transport Migration (Plan 004).
+
+### Rationale for Change
+
+1. **Stdio isolation** - The subprocess model prevented `wingmate_discover` from returning actual peers
+2. **Dual process burden** - Users had to manage two separate processes (agent + MCP subprocess)
+3. **Unified architecture** - Single process now serves both A2A and MCP, simplifying operations
+4. **Protocol alignment** - MCP Streamable HTTP (2025-03-26) is the current protocol standard
+
+### New Decision
+
+- MCP is available via HTTP transport only at `/mcp` endpoint
+- Stdio transport has been removed (files deleted)
+- Users configure via `claude mcp add --transport http`
+- `wingmate mcp` command shows migration guidance and exits
+
+### Updated Implementation
+
+```
+internal/mcp/
+├── http_transport.go   # HTTP handler implementing http.Handler
+├── localhost.go        # Localhost-only middleware (returns 403 for non-localhost)
+├── session.go          # Session manager with 30-min TTL
+├── tools.go            # Tool definitions (unchanged)
+├── handlers.go         # Tool handlers with PeerProvider interface
+├── types.go            # ServerConfig, ServerState, Logger (moved from server.go)
+└── errors.go           # Error codes 3001-3099 (unchanged)
+```
+
+### Files Removed
+
+- `transport.go` (stdio NDJSON transport)
+- `transport_test.go` (stdio transport tests)
+- `server.go` (stdio server lifecycle)
+- `server_test.go` (stdio server tests)
+
+### Superseded Constraint
+
+~~"stdio transport only (no HTTP for MCP)"~~ → HTTP transport only at `/mcp` endpoint
+
+### Migration Path
+
+Users with existing stdio configuration should:
+
+1. Remove old config: `claude mcp remove wingmate`
+2. Start agent: `wingmate --port 9000 --name my-agent`
+3. Add HTTP transport: `claude mcp add --transport http wingmate http://localhost:9000/mcp`
+
+See [docs/how/mcp-setup.md](../../docs/how/mcp-setup.md) for detailed migration guide.
+
+---
+
 <!--
 MACHINE-READABLE CONTEXT
 ========================
@@ -218,7 +276,7 @@ adr:
     - "MCP error codes must be in range 3001-3099"
     - "All MCP tool invocations must log to Flight Log"
     - "Use adapter pattern to isolate SDK API changes"
-    - "stdio transport only (no HTTP for MCP)"
+    - "HTTP transport only at /mcp endpoint (stdio removed 2026-01-24)"
 
   depends_on:
     - 1  # Language choice (Go)
@@ -232,8 +290,14 @@ adr:
     - "P6"  # Security by Design
 
   implementation:
-    status: "not_started"
+    status: "complete"
     location: "internal/mcp/"
+
+  amendments:
+    - date: "2026-01-24"
+      change: "HTTP Transport Migration"
+      summary: "Replaced stdio transport with HTTP at /mcp endpoint"
+      plan: "docs/plans/004-mcp-http-transport/"
 
   tags:
     - "mcp"

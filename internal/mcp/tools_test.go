@@ -1,178 +1,18 @@
 // Package mcp provides tests for the MCP tool definitions and registration.
 //
-// Why: Ensures tools/list returns registered tools per MCP specification.
-// Contract: After RegisterTool is called, tools/list must return all registered tools.
-// Usage Notes: Use TestTransport for bidirectional communication testing.
-// Quality Contribution: Catches missing tool registration or schema mismatches.
+// Why: Ensures tool definitions have correct schemas per MCP specification.
+// Contract: Tool definitions must have valid name, description, and inputSchema.
+// Usage Notes: Integration tests in internal/agent cover full tool registration flow.
+// Quality Contribution: Catches schema mismatches and missing tool fields.
 package mcp
 
 import (
-	"context"
 	"testing"
-
-	"github.com/wingmate/wingmate/tests/helpers"
 )
 
-// TestToolsListIncludesRegisteredTools verifies that tools/list returns
-// tools that have been registered with the server.
-//
-// Given: A server with wingmate_chat registered
-// When: Client sends tools/list request
-// Then: Response includes wingmate_chat tool with correct schema
-func TestToolsListIncludesRegisteredTools(t *testing.T) {
-	// Setup
-	tt := helpers.NewTestTransport()
-	t.Cleanup(func() { tt.Close() })
-
-	transport := NewTransport(tt.ServerReader, tt.ServerWriter)
-	config := ServerConfig{Name: "test-server", Version: "1.0.0"}
-	server := NewServer(config, transport)
-
-	// Register default tools
-	for _, tool := range DefaultTools() {
-		server.RegisterTool(tool)
-	}
-
-	// Start server in background
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	go func() {
-		_ = server.Run(ctx)
-	}()
-
-	// Send initialize request first (required before tools/list)
-	err := tt.SendRequest(1, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "test", "version": "1.0"},
-	})
-	helpers.AssertNoError(t, err, "send initialize")
-
-	_, err = tt.ReadResponse()
-	helpers.AssertNoError(t, err, "read initialize response")
-
-	// Send tools/list request
-	err = tt.SendRequest(2, "tools/list", nil)
-	helpers.AssertNoError(t, err, "send tools/list")
-
-	// Read response
-	resp, err := tt.ReadResponse()
-	helpers.AssertNoError(t, err, "read tools/list response")
-
-	// Assert no error
-	if resp.Error != nil {
-		t.Fatalf("tools/list error: %v", resp.Error)
-	}
-
-	result, ok := resp.Result.(map[string]any)
-	if !ok {
-		t.Fatalf("Expected result to be map, got %T", resp.Result)
-	}
-
-	tools, ok := result["tools"].([]any)
-	if !ok {
-		t.Fatalf("Expected tools to be array, got %T", result["tools"])
-	}
-
-	// Should have all 3 default tools
-	if len(tools) != 3 {
-		t.Errorf("Expected 3 tools, got %d", len(tools))
-	}
-
-	// Find wingmate_chat tool
-	var chatTool map[string]any
-	for _, tool := range tools {
-		toolMap := tool.(map[string]any)
-		if toolMap["name"] == ToolNameChat {
-			chatTool = toolMap
-			break
-		}
-	}
-
-	if chatTool == nil {
-		t.Fatal("Expected wingmate_chat tool to be registered")
-	}
-
-	// Verify schema
-	if chatTool["description"] != "Send a prompt to Claude CLI and get a response" {
-		t.Errorf("Unexpected description: %s", chatTool["description"])
-	}
-
-	schema, ok := chatTool["inputSchema"].(map[string]any)
-	if !ok {
-		t.Fatal("Expected inputSchema to be a map")
-	}
-
-	if schema["type"] != "object" {
-		t.Errorf("Expected schema type to be object, got %s", schema["type"])
-	}
-}
-
-// TestToolsListIncludesAllDefaultTools verifies all three default tools are present.
-//
-// Given: A server with default tools registered
-// When: Client sends tools/list request
-// Then: Response includes wingmate_chat, wingmate_status, wingmate_discover
-func TestToolsListIncludesAllDefaultTools(t *testing.T) {
-	// Setup
-	tt := helpers.NewTestTransport()
-	t.Cleanup(func() { tt.Close() })
-
-	transport := NewTransport(tt.ServerReader, tt.ServerWriter)
-	config := ServerConfig{Name: "test-server", Version: "1.0.0"}
-	server := NewServer(config, transport)
-
-	// Register default tools
-	for _, tool := range DefaultTools() {
-		server.RegisterTool(tool)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	go func() {
-		_ = server.Run(ctx)
-	}()
-
-	// Initialize first
-	err := tt.SendRequest(1, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "test", "version": "1.0"},
-	})
-	helpers.AssertNoError(t, err, "send initialize")
-	tt.ReadResponse()
-
-	// Send tools/list
-	err = tt.SendRequest(2, "tools/list", nil)
-	helpers.AssertNoError(t, err, "send tools/list")
-
-	resp, err := tt.ReadResponse()
-	helpers.AssertNoError(t, err, "read response")
-
-	if resp.Error != nil {
-		t.Fatalf("tools/list error: %v", resp.Error)
-	}
-
-	result := resp.Result.(map[string]any)
-	tools := result["tools"].([]any)
-
-	// Collect tool names
-	toolNames := make(map[string]bool)
-	for _, tool := range tools {
-		toolMap := tool.(map[string]any)
-		toolNames[toolMap["name"].(string)] = true
-	}
-
-	// Verify all default tools are present
-	expectedTools := []string{ToolNameChat, ToolNameStatus, ToolNameDiscover}
-	for _, name := range expectedTools {
-		if !toolNames[name] {
-			t.Errorf("Expected tool %q to be registered", name)
-		}
-	}
-}
+// NOTE: Tests for tools/list over stdio transport (TestToolsListIncludesRegisteredTools,
+// TestToolsListIncludesAllDefaultTools) were removed in Phase 3 of MCP HTTP Transport migration.
+// Tool registration is now tested via HTTP integration tests in internal/agent/mcp_integration_test.go.
 
 // TestWingmateChatSchema validates the wingmate_chat tool schema structure.
 //

@@ -91,13 +91,15 @@ Options:
 
 Commands:
   (none)              Start agent server
-  mcp                 Start MCP server (for Claude Code)
   ping <peer-url>     Send ping to a peer
   status <peer-url>   Fetch peer's Agent Card
 
+MCP Integration:
+  MCP tools are available at http://localhost:<port>/mcp when agent is running.
+  Configure Claude Code: claude mcp add --transport http wingmate http://localhost:9000/mcp
+
 Examples:
   wingmate --port 9000 --name my-agent
-  wingmate mcp
   wingmate ping http://localhost:9001 --name sender
   wingmate status http://localhost:9001
 ```
@@ -230,27 +232,18 @@ For detailed setup instructions, see [docs/how/llm-setup.md](docs/how/llm-setup.
 
 ## MCP Server (Claude Code Integration)
 
-Wingmate can run as an MCP (Model Context Protocol) server, enabling Claude Code to use Wingmate tools directly.
+Wingmate exposes MCP (Model Context Protocol) tools via HTTP, enabling Claude Code to invoke Wingmate tools directly.
 
 ### Quick Setup
 
-1. **Build Wingmate**
+1. **Start Wingmate Agent**
    ```bash
-   go build -o wingmate ./cmd/wingmate
-   sudo mv wingmate /usr/local/bin/
+   wingmate --port 9000 --name my-agent
    ```
 
-2. **Configure Claude Code** - Add to `~/.claude.json`:
-   ```json
-   {
-     "mcpServers": {
-       "wingmate": {
-         "command": "/usr/local/bin/wingmate",
-         "args": ["mcp"],
-         "type": "stdio"
-       }
-     }
-   }
+2. **Configure Claude Code** (run once)
+   ```bash
+   claude mcp add --transport http wingmate http://localhost:9000/mcp
    ```
 
 3. **Restart Claude Code** - The `wingmate_chat`, `wingmate_status`, and `wingmate_discover` tools become available.
@@ -261,7 +254,7 @@ Wingmate can run as an MCP (Model Context Protocol) server, enabling Claude Code
 |------|-------------|
 | `wingmate_chat` | Send chat messages through Wingmate's LLM integration |
 | `wingmate_status` | Get Wingmate operational status |
-| `wingmate_discover` | Discover available Wingmate agents |
+| `wingmate_discover` | Discover available peer agents |
 
 ### Configuration
 
@@ -275,8 +268,8 @@ Wingmate can run as an MCP (Model Context Protocol) server, enabling Claude Code
 | Error Code | Description | Solution |
 |------------|-------------|----------|
 | 3001 | Invalid request | Check JSON format |
-| 3010 | Tool not found | Restart MCP server |
-| 3020 | Transport error | Restart Claude Code |
+| 3010 | Tool not found | Restart agent |
+| 403 | Forbidden | MCP only accessible from localhost |
 
 For detailed setup instructions, see [docs/how/mcp-setup.md](docs/how/mcp-setup.md).
 

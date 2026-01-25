@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -409,13 +410,13 @@ func TestWingmateStatusReturnsHealth(t *testing.T) {
 // wingmate_discover Handler Tests (T016)
 // =============================================================================
 
-// TestWingmateDiscoverReturnsEmpty verifies discover returns empty peers.
+// TestWingmateDiscoverReturnsEmpty verifies discover returns empty peers when no provider.
 //
-// Given: A discover handler
+// Given: A discover handler with nil PeerProvider
 // When: HandleDiscover is called
 // Then: Returns peers=[], agent_id
 func TestWingmateDiscoverReturnsEmpty(t *testing.T) {
-	handler := NewDiscoverHandler("agent-001")
+	handler := NewDiscoverHandler("agent-001", nil) // nil PeerProvider
 
 	req := &ToolRequest{
 		Name:      ToolNameDiscover,
@@ -442,5 +443,73 @@ func TestWingmateDiscoverReturnsEmpty(t *testing.T) {
 	textContent := result.Content[0].(*TextContent)
 	if textContent.Text == "" {
 		t.Error("Expected discover JSON, got empty")
+	}
+}
+
+// mockPeerProvider is a test implementation of PeerProvider.
+type mockPeerProvider struct {
+	peers []string
+}
+
+func (m *mockPeerProvider) GetPeers() []string {
+	return m.peers
+}
+
+// TestWingmateDiscoverReturnsPeersFromProvider verifies discover returns actual peers.
+//
+// Given: A discover handler with a PeerProvider returning 2 peers
+// When: HandleDiscover is called
+// Then: Returns those 2 peers in the response
+func TestWingmateDiscoverReturnsPeersFromProvider(t *testing.T) {
+	provider := &mockPeerProvider{
+		peers: []string{"http://peer1:9000", "http://peer2:9001"},
+	}
+	handler := NewDiscoverHandler("agent-001", provider)
+
+	req := &ToolRequest{
+		Name:      ToolNameDiscover,
+		Arguments: map[string]any{},
+		ctx:       context.Background(),
+	}
+
+	result, err := handler(context.Background(), req)
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected result, got nil")
+	}
+	if result.IsError {
+		t.Error("Expected IsError=false")
+	}
+
+	// Parse the JSON response
+	textContent := result.Content[0].(*TextContent)
+	var info DiscoverInfo
+	if err := json.Unmarshal([]byte(textContent.Text), &info); err != nil {
+		t.Fatalf("Failed to parse discover response: %v", err)
+	}
+
+	if info.AgentID != "agent-001" {
+		t.Errorf("AgentID = %q, want %q", info.AgentID, "agent-001")
+	}
+	if len(info.Peers) != 2 {
+		t.Errorf("Peers count = %d, want 2", len(info.Peers))
+	}
+
+	// Check peer URLs are present
+	foundPeer1 := false
+	foundPeer2 := false
+	for _, p := range info.Peers {
+		if p == "http://peer1:9000" {
+			foundPeer1 = true
+		}
+		if p == "http://peer2:9001" {
+			foundPeer2 = true
+		}
+	}
+	if !foundPeer1 || !foundPeer2 {
+		t.Errorf("Expected both peers, got: %v", info.Peers)
 	}
 }

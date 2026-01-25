@@ -14,9 +14,11 @@ import (
 
 // A2AServer implements the Server interface for A2A protocol.
 // It serves JSON-RPC requests at POST / and Agent Card at GET /.well-known/agent.json.
+// It can also serve MCP requests at POST /mcp when an MCP handler is registered.
 type A2AServer struct {
-	handler   MessageHandler
-	agentCard *types.AgentCard
+	handler    MessageHandler
+	agentCard  *types.AgentCard
+	mcpHandler http.Handler // MCP handler for /mcp route
 
 	server   *http.Server
 	listener net.Listener
@@ -46,6 +48,15 @@ func (s *A2AServer) SetAgentCard(card *types.AgentCard) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agentCard = card
+}
+
+// SetMCPHandler registers an HTTP handler for the /mcp route.
+// The handler should be wrapped with LocalhostMiddleware before passing
+// to ensure localhost-only access for security.
+func (s *A2AServer) SetMCPHandler(h http.Handler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mcpHandler = h
 }
 
 // ListenAndServe starts the HTTP server on the given address.
@@ -136,11 +147,27 @@ func (s *A2AServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case types.AgentCardWellKnownPath:
 		s.handleAgentCard(w, r)
+	case "/mcp":
+		s.handleMCP(w, r)
 	case "/", "":
 		s.handleJSONRPC(w, r)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// handleMCP routes MCP requests to the registered MCP handler.
+func (s *A2AServer) handleMCP(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	h := s.mcpHandler
+	s.mu.RUnlock()
+
+	if h == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	h.ServeHTTP(w, r)
 }
 
 // handleAgentCard serves the Agent Card.
