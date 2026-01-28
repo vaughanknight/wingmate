@@ -151,7 +151,7 @@ func buildAgentCard(cfg *Config, llmAvailable bool) *types.AgentCard {
 
 	return &types.AgentCard{
 		Name:        cfg.Name,
-		Description: "Wingmate A2A agent",
+		Description: cfg.Description,
 		URL:         "", // Set when server starts
 		Version:     Version,
 		Capabilities: types.Capabilities{

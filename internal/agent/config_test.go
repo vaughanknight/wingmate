@@ -645,6 +645,111 @@ func TestConfig_Clone_ClonesClaudeConfig(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Description / Purpose Tests (Plan 005, Phase 1)
+// =============================================================================
+
+// TestConfig_Description_WithEnv verifies WINGMATE_PURPOSE env var sets Description.
+func TestConfig_Description_WithEnv(t *testing.T) {
+	t.Setenv("WINGMATE_PURPOSE", "Build iOS apps")
+
+	cfg := NewConfig().WithEnv()
+
+	if cfg.Description != "Build iOS apps" {
+		t.Errorf("Description = %q, want %q", cfg.Description, "Build iOS apps")
+	}
+}
+
+// TestConfig_Description_WithEnv_PreservesWhenUnset verifies Description preserved when env not set.
+func TestConfig_Description_WithEnv_PreservesWhenUnset(t *testing.T) {
+	cfg := &Config{Description: "existing purpose"}
+
+	result := cfg.WithEnv()
+
+	if result.Description != "existing purpose" {
+		t.Errorf("Description = %q, want %q", result.Description, "existing purpose")
+	}
+}
+
+// TestConfig_Description_WithDefaults verifies default Description applied when empty.
+func TestConfig_Description_WithDefaults(t *testing.T) {
+	cfg := NewConfig().WithDefaults()
+
+	if cfg.Description != DefaultDescription {
+		t.Errorf("Description = %q, want %q", cfg.Description, DefaultDescription)
+	}
+}
+
+// TestConfig_Description_WithDefaults_PreservesExisting verifies custom Description not overwritten.
+func TestConfig_Description_WithDefaults_PreservesExisting(t *testing.T) {
+	cfg := &Config{Description: "Custom purpose"}
+
+	result := cfg.WithDefaults()
+
+	if result.Description != "Custom purpose" {
+		t.Errorf("Description = %q, want %q", result.Description, "Custom purpose")
+	}
+}
+
+// TestConfig_Description_Merge_NonEmpty verifies non-empty Description overwrites.
+func TestConfig_Description_Merge_NonEmpty(t *testing.T) {
+	base := &Config{Description: "old purpose"}
+	flags := &Config{Description: "new purpose"}
+
+	result := base.Merge(flags)
+
+	if result.Description != "new purpose" {
+		t.Errorf("Description = %q, want %q", result.Description, "new purpose")
+	}
+}
+
+// TestConfig_Description_Merge_Empty verifies empty Description does NOT overwrite.
+func TestConfig_Description_Merge_Empty(t *testing.T) {
+	base := &Config{Description: "keep this"}
+	flags := &Config{Description: ""}
+
+	result := base.Merge(flags)
+
+	if result.Description != "keep this" {
+		t.Errorf("Description = %q, want %q", result.Description, "keep this")
+	}
+}
+
+// TestConfig_Description_Clone verifies Description is deep copied.
+func TestConfig_Description_Clone(t *testing.T) {
+	original := Config{Description: "original purpose"}
+
+	cloned := original.Clone()
+	cloned.Description = "changed"
+
+	if original.Description != "original purpose" {
+		t.Errorf("Original Description changed to %q", original.Description)
+	}
+}
+
+// TestConfig_Description_JSON verifies JSON round-trip for Description.
+func TestConfig_Description_JSON(t *testing.T) {
+	cfg := Config{
+		Name:        "test",
+		Port:        9000,
+		Description: "Build data pipelines",
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if loaded.Description != "Build data pipelines" {
+		t.Errorf("Description = %q, want %q", loaded.Description, "Build data pipelines")
+	}
+}
+
 // TestConfig_FullLifecycle tests the complete config lifecycle.
 func TestConfig_FullLifecycle(t *testing.T) {
 	// Create temp CLI file

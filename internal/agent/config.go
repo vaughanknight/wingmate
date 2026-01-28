@@ -10,8 +10,9 @@ import (
 
 // Default configuration values.
 const (
-	DefaultPort    = 9000
-	DefaultLogFile = "./flight.jsonl"
+	DefaultPort        = 9000
+	DefaultLogFile     = "./flight.jsonl"
+	DefaultDescription = "Wingmate A2A agent"
 )
 
 // Claude CLI default configuration values.
@@ -27,6 +28,7 @@ const (
 	EnvPeers   = "WINGMATE_PEERS"
 	EnvLog     = "WINGMATE_LOG"
 	EnvVerbose = "WINGMATE_VERBOSE"
+	EnvPurpose = "WINGMATE_PURPOSE"
 )
 
 // Claude CLI environment variable names.
@@ -48,13 +50,14 @@ type ClaudeConfig struct {
 // Config holds the agent configuration.
 // Per ADR-003: There is NO Mode field - every agent is a full peer.
 type Config struct {
-	Name         string       `json:"name"`                   // Agent name (required)
-	Port         int          `json:"port"`                   // Listen port (default: 9000)
-	Peers        []string     `json:"peers,omitempty"`        // Known peer URLs
-	LogFile      string       `json:"logFile"`                // Flight log path (default: ./flight.jsonl)
-	Verbose      bool         `json:"verbose"`                // Mirror logs to stdout
-	Capabilities []string     `json:"capabilities,omitempty"` // Advertised capabilities
-	Claude       ClaudeConfig `json:"claude,omitempty"`       // Claude CLI configuration
+	Name         string       `json:"name"`                      // Agent name (required)
+	Description  string       `json:"description,omitempty"`     // Agent purpose/description (default: "Wingmate A2A agent")
+	Port         int          `json:"port"`                      // Listen port (default: 9000)
+	Peers        []string     `json:"peers,omitempty"`           // Known peer URLs
+	LogFile      string       `json:"logFile"`                   // Flight log path (default: ./flight.jsonl)
+	Verbose      bool         `json:"verbose"`                   // Mirror logs to stdout
+	Capabilities []string     `json:"capabilities,omitempty"`    // Advertised capabilities
+	Claude       ClaudeConfig `json:"claude,omitempty"`          // Claude CLI configuration
 }
 
 // NewConfig creates a new Config with default values.
@@ -108,6 +111,10 @@ func (c *Config) WithEnv() *Config {
 		result.LogFile = logFile
 	}
 
+	if purpose := os.Getenv(EnvPurpose); purpose != "" {
+		result.Description = purpose
+	}
+
 	if verboseStr := os.Getenv(EnvVerbose); verboseStr != "" {
 		result.Verbose = verboseStr == "true" || verboseStr == "1"
 	}
@@ -144,6 +151,10 @@ func (c *Config) WithDefaults() *Config {
 		result.Port = DefaultPort
 	}
 
+	if result.Description == "" {
+		result.Description = DefaultDescription
+	}
+
 	if result.LogFile == "" {
 		result.LogFile = DefaultLogFile
 	}
@@ -171,10 +182,11 @@ func (c *Config) WithDefaults() *Config {
 // Clone creates a deep copy of the Config.
 func (c *Config) Clone() *Config {
 	result := &Config{
-		Name:    c.Name,
-		Port:    c.Port,
-		LogFile: c.LogFile,
-		Verbose: c.Verbose,
+		Name:        c.Name,
+		Description: c.Description,
+		Port:        c.Port,
+		LogFile:     c.LogFile,
+		Verbose:     c.Verbose,
 		Claude: ClaudeConfig{
 			CLIPath:      c.Claude.CLIPath,
 			Model:        c.Claude.Model,
@@ -204,6 +216,10 @@ func (c *Config) Merge(flags *Config) *Config {
 
 	if flags.Name != "" {
 		result.Name = flags.Name
+	}
+
+	if flags.Description != "" {
+		result.Description = flags.Description
 	}
 
 	if flags.Port != 0 {

@@ -28,6 +28,7 @@ var (
 	peers      = flag.String("peers", "", "Comma-separated list of peer URLs")
 	logFile    = flag.String("log", "", "Flight log path (default: ./flight.jsonl)")
 	verbose    = flag.Bool("verbose", false, "Mirror logs to stdout")
+	purpose    = flag.String("purpose", "", "Agent purpose/description for specialization")
 	configPath = flag.String("config", "", "Config file path")
 	help       = flag.Bool("help", false, "Show help")
 )
@@ -93,6 +94,7 @@ Wingmate is an A2A (Agent-to-Agent) communication tool with MCP support.
 
 Options:
   --name      Agent name (required for server mode)
+  --purpose   Agent purpose/description for specialization
   --port      Listen port (default: 9000)
   --peers     Comma-separated list of peer URLs
   --log       Flight log path (default: ./flight.jsonl)
@@ -151,6 +153,9 @@ func loadConfig() (*agent.Config, error) {
 	}
 	if *verbose {
 		flagCfg.Verbose = true
+	}
+	if *purpose != "" {
+		flagCfg.Description = *purpose
 	}
 	cfg = cfg.Merge(flagCfg)
 

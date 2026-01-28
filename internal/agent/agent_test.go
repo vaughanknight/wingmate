@@ -384,6 +384,38 @@ func TestAgent_AgentCard_HasChatSkillWithCLI(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Description / Purpose Tests (Plan 005, Phase 1)
+// =============================================================================
+
+// TestBuildAgentCard_UsesConfigDescription verifies config description flows to AgentCard.
+func TestBuildAgentCard_UsesConfigDescription(t *testing.T) {
+	cfg := &Config{
+		Name:        "test-agent",
+		Description: "Build iOS apps",
+	}
+
+	card := buildAgentCard(cfg, false)
+
+	if card.Description != "Build iOS apps" {
+		t.Errorf("card.Description = %q, want %q", card.Description, "Build iOS apps")
+	}
+}
+
+// TestBuildAgentCard_DefaultDescription verifies default description when config uses default.
+func TestBuildAgentCard_DefaultDescription(t *testing.T) {
+	cfg := &Config{
+		Name:        "test-agent",
+		Description: DefaultDescription,
+	}
+
+	card := buildAgentCard(cfg, false)
+
+	if card.Description != DefaultDescription {
+		t.Errorf("card.Description = %q, want %q", card.Description, DefaultDescription)
+	}
+}
+
 // mockExecutor is a test implementation of LLMExecutor for agent tests.
 type mockExecutor struct {
 	installed     bool
