@@ -448,11 +448,118 @@ func TestWingmateDiscoverReturnsEmpty(t *testing.T) {
 
 // mockPeerProvider is a test implementation of PeerProvider.
 type mockPeerProvider struct {
-	peers []string
+	peers    []string
+	peerInfo []PeerInfo
 }
 
 func (m *mockPeerProvider) GetPeers() []string {
 	return m.peers
+}
+
+func (m *mockPeerProvider) GetPeerInfo() []PeerInfo {
+	if m.peerInfo != nil {
+		return m.peerInfo
+	}
+	return nil
+}
+
+// =============================================================================
+// PeerInfo & Extended PeerProvider Tests (Plan 005, Phase 2)
+// =============================================================================
+
+// TestPeerInfo_Fields verifies PeerInfo struct has all required fields.
+func TestPeerInfo_Fields(t *testing.T) {
+	info := PeerInfo{
+		Name:        "bravo",
+		URL:         "http://localhost:9001",
+		Description: "Backend dev",
+		Skills:      []PeerSkill{{Name: "chat", Description: "Process messages"}},
+		Available:   true,
+	}
+
+	if info.Name != "bravo" {
+		t.Errorf("Name = %q, want %q", info.Name, "bravo")
+	}
+	if info.URL != "http://localhost:9001" {
+		t.Errorf("URL = %q, want %q", info.URL, "http://localhost:9001")
+	}
+	if info.Description != "Backend dev" {
+		t.Errorf("Description = %q, want %q", info.Description, "Backend dev")
+	}
+	if len(info.Skills) != 1 || info.Skills[0].Name != "chat" {
+		t.Errorf("Skills = %v, want [{chat, Process messages}]", info.Skills)
+	}
+	if !info.Available {
+		t.Error("Available = false, want true")
+	}
+}
+
+// TestPeerInfo_JSON verifies PeerInfo serializes correctly.
+func TestPeerInfo_JSON(t *testing.T) {
+	info := PeerInfo{
+		Name:      "bravo",
+		URL:       "http://localhost:9001",
+		Available: true,
+	}
+
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var parsed PeerInfo
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if parsed.Name != info.Name {
+		t.Errorf("Name = %q, want %q", parsed.Name, info.Name)
+	}
+	if parsed.URL != info.URL {
+		t.Errorf("URL = %q, want %q", parsed.URL, info.URL)
+	}
+	if parsed.Available != info.Available {
+		t.Errorf("Available = %v, want %v", parsed.Available, info.Available)
+	}
+	// Description should be omitted (empty)
+	if parsed.Description != "" {
+		t.Errorf("Description = %q, want empty (omitempty)", parsed.Description)
+	}
+}
+
+// mockRichPeerProvider implements PeerProvider with GetPeerInfo support.
+type mockRichPeerProvider struct {
+	peers    []string
+	peerInfo []PeerInfo
+}
+
+func (m *mockRichPeerProvider) GetPeers() []string {
+	return m.peers
+}
+
+func (m *mockRichPeerProvider) GetPeerInfo() []PeerInfo {
+	return m.peerInfo
+}
+
+// TestMockRichPeerProvider_GetPeerInfo verifies mock implements extended interface.
+func TestMockRichPeerProvider_GetPeerInfo(t *testing.T) {
+	provider := &mockRichPeerProvider{
+		peerInfo: []PeerInfo{
+			{Name: "alpha", URL: "http://localhost:9000", Available: true},
+			{Name: "bravo", URL: "http://localhost:9001", Description: "Backend", Available: false},
+		},
+	}
+
+	info := provider.GetPeerInfo()
+	if len(info) != 2 {
+		t.Fatalf("GetPeerInfo() len = %d, want 2", len(info))
+	}
+	if info[0].Name != "alpha" {
+		t.Errorf("info[0].Name = %q, want %q", info[0].Name, "alpha")
+	}
+	if info[1].Description != "Backend" {
+		t.Errorf("info[1].Description = %q, want %q", info[1].Description, "Backend")
+	}
 }
 
 // TestWingmateDiscoverReturnsPeersFromProvider verifies discover returns actual peers.
@@ -461,8 +568,12 @@ func (m *mockPeerProvider) GetPeers() []string {
 // When: HandleDiscover is called
 // Then: Returns those 2 peers in the response
 func TestWingmateDiscoverReturnsPeersFromProvider(t *testing.T) {
-	provider := &mockPeerProvider{
+	provider := &mockRichPeerProvider{
 		peers: []string{"http://peer1:9000", "http://peer2:9001"},
+		peerInfo: []PeerInfo{
+			{Name: "peer1", URL: "http://peer1:9000", Available: true},
+			{Name: "peer2", URL: "http://peer2:9001", Description: "Backend", Available: true},
+		},
 	}
 	handler := NewDiscoverHandler("agent-001", provider)
 
@@ -495,21 +606,93 @@ func TestWingmateDiscoverReturnsPeersFromProvider(t *testing.T) {
 		t.Errorf("AgentID = %q, want %q", info.AgentID, "agent-001")
 	}
 	if len(info.Peers) != 2 {
-		t.Errorf("Peers count = %d, want 2", len(info.Peers))
+		t.Fatalf("Peers count = %d, want 2", len(info.Peers))
 	}
 
-	// Check peer URLs are present
-	foundPeer1 := false
-	foundPeer2 := false
-	for _, p := range info.Peers {
-		if p == "http://peer1:9000" {
-			foundPeer1 = true
-		}
-		if p == "http://peer2:9001" {
-			foundPeer2 = true
-		}
+	// Check rich peer data
+	if info.Peers[0].Name != "peer1" && info.Peers[1].Name != "peer1" {
+		t.Errorf("Expected peer1 in response, got: %v", info.Peers)
 	}
-	if !foundPeer1 || !foundPeer2 {
-		t.Errorf("Expected both peers, got: %v", info.Peers)
+}
+
+// TestWingmateDiscoverReturnsPeerInfoRich verifies rich peer data in response.
+func TestWingmateDiscoverReturnsPeerInfoRich(t *testing.T) {
+	provider := &mockRichPeerProvider{
+		peerInfo: []PeerInfo{
+			{
+				Name:        "bravo",
+				URL:         "http://localhost:9001",
+				Description: "Backend dev",
+				Skills:      []PeerSkill{{Name: "chat", Description: "Process messages"}},
+				Available:   true,
+			},
+		},
+	}
+	handler := NewDiscoverHandler("alpha", provider)
+
+	req := &ToolRequest{
+		Name:      ToolNameDiscover,
+		Arguments: map[string]any{},
+		ctx:       context.Background(),
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	textContent := result.Content[0].(*TextContent)
+	var info DiscoverInfo
+	if err := json.Unmarshal([]byte(textContent.Text), &info); err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	if len(info.Peers) != 1 {
+		t.Fatalf("Peers len = %d, want 1", len(info.Peers))
+	}
+	peer := info.Peers[0]
+	if peer.Name != "bravo" {
+		t.Errorf("Name = %q, want %q", peer.Name, "bravo")
+	}
+	if peer.Description != "Backend dev" {
+		t.Errorf("Description = %q, want %q", peer.Description, "Backend dev")
+	}
+	if !peer.Available {
+		t.Error("Available = false, want true")
+	}
+	if len(peer.Skills) != 1 || peer.Skills[0].Name != "chat" {
+		t.Errorf("Skills = %v, want [{chat ...}]", peer.Skills)
+	}
+}
+
+// TestWingmateDiscoverEmptyPeerInfo verifies empty peers returns empty array.
+func TestWingmateDiscoverEmptyPeerInfo(t *testing.T) {
+	provider := &mockRichPeerProvider{
+		peerInfo: []PeerInfo{},
+	}
+	handler := NewDiscoverHandler("alpha", provider)
+
+	req := &ToolRequest{
+		Name:      ToolNameDiscover,
+		Arguments: map[string]any{},
+		ctx:       context.Background(),
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	textContent := result.Content[0].(*TextContent)
+	var info DiscoverInfo
+	if err := json.Unmarshal([]byte(textContent.Text), &info); err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	if info.Peers == nil {
+		t.Error("Peers is nil, want empty array")
+	}
+	if len(info.Peers) != 0 {
+		t.Errorf("Peers len = %d, want 0", len(info.Peers))
 	}
 }

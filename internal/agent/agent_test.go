@@ -416,6 +416,342 @@ func TestBuildAgentCard_DefaultDescription(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// GetPeerInfo Tests (Plan 005, Phase 2)
+// =============================================================================
+
+// TestAgent_GetPeerInfo_Empty verifies empty knownPeers returns empty slice.
+func TestAgent_GetPeerInfo_Empty(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{
+		Name:    "test-agent",
+		Port:    0,
+		LogFile: filepath.Join(dir, "flight.jsonl"),
+	}
+
+	a, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer a.Shutdown(context.Background())
+
+	info := a.GetPeerInfo()
+	if len(info) != 0 {
+		t.Errorf("GetPeerInfo() len = %d, want 0", len(info))
+	}
+}
+
+// TestAgent_GetPeerInfo_Populated verifies knownPeers are converted to PeerInfo.
+func TestAgent_GetPeerInfo_Populated(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{
+		Name:    "test-agent",
+		Port:    0,
+		LogFile: filepath.Join(dir, "flight.jsonl"),
+	}
+
+	a, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer a.Shutdown(context.Background())
+
+	// Manually populate knownPeers
+	a.peersMu.Lock()
+	a.knownPeers["http://localhost:9001"] = &types.AgentCard{
+		Name:        "bravo",
+		URL:         "http://localhost:9001",
+		Description: "Backend dev",
+		Skills: []types.Skill{
+			{Name: "chat", Description: "Process messages"},
+		},
+	}
+	a.peersMu.Unlock()
+
+	info := a.GetPeerInfo()
+	if len(info) != 1 {
+		t.Fatalf("GetPeerInfo() len = %d, want 1", len(info))
+	}
+
+	pi := info[0]
+	if pi.Name != "bravo" {
+		t.Errorf("Name = %q, want %q", pi.Name, "bravo")
+	}
+	if pi.URL != "http://localhost:9001" {
+		t.Errorf("URL = %q, want %q", pi.URL, "http://localhost:9001")
+	}
+	if pi.Description != "Backend dev" {
+		t.Errorf("Description = %q, want %q", pi.Description, "Backend dev")
+	}
+	if !pi.Available {
+		t.Error("Available = false, want true")
+	}
+	if len(pi.Skills) != 1 || pi.Skills[0].Name != "chat" {
+		t.Errorf("Skills = %v, want [{chat ...}]", pi.Skills)
+	}
+}
+
+// TestAgent_GetPeerInfo_ThreadSafe verifies concurrent access doesn't race.
+func TestAgent_GetPeerInfo_ThreadSafe(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{
+		Name:    "test-agent",
+		Port:    0,
+		LogFile: filepath.Join(dir, "flight.jsonl"),
+	}
+
+	a, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer a.Shutdown(context.Background())
+
+	// Concurrent reads and writes
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			a.peersMu.Lock()
+			a.knownPeers["http://localhost:9001"] = &types.AgentCard{Name: "bravo"}
+			a.peersMu.Unlock()
+		}
+	}()
+
+	for i := 0; i < 100; i++ {
+		_ = a.GetPeerInfo()
+	}
+	<-done
+}
+
+// =============================================================================
+// probePeers Tests (Plan 005, Phase 2)
+// =============================================================================
+
+// TestAgent_ProbePeers_PopulatesKnownPeers verifies startup probing populates knownPeers.
+func TestAgent_ProbePeers_PopulatesKnownPeers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	tmpDir := t.TempDir()
+
+	// Start agent2 (the peer to be discovered)
+	cfg2 := &Config{
+		Name:        "bravo",
+		Description: "Backend dev",
+		Port:        0,
+		LogFile:     filepath.Join(tmpDir, "bravo.jsonl"),
+	}
+	agent2, err := New(cfg2)
+	if err != nil {
+		t.Fatalf("New agent2 failed: %v", err)
+	}
+	go agent2.Start(ctx)
+	if err := agent2.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("agent2 not ready: %v", err)
+	}
+	defer agent2.Shutdown(context.Background())
+
+	// Start agent1 with agent2 as a peer
+	cfg1 := &Config{
+		Name:    "alpha",
+		Port:    0,
+		Peers:   []string{agent2.URL()},
+		LogFile: filepath.Join(tmpDir, "alpha.jsonl"),
+	}
+	agent1, err := New(cfg1)
+	if err != nil {
+		t.Fatalf("New agent1 failed: %v", err)
+	}
+	go agent1.Start(ctx)
+	if err := agent1.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("agent1 not ready: %v", err)
+	}
+	defer agent1.Shutdown(context.Background())
+
+	// Wait for probe to complete
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify knownPeers populated
+	info := agent1.GetPeerInfo()
+	if len(info) != 1 {
+		t.Fatalf("GetPeerInfo() len = %d, want 1", len(info))
+	}
+	if info[0].Name != "bravo" {
+		t.Errorf("peer Name = %q, want %q", info[0].Name, "bravo")
+	}
+	if info[0].Description != "Backend dev" {
+		t.Errorf("peer Description = %q, want %q", info[0].Description, "Backend dev")
+	}
+}
+
+// TestAgent_ProbePeers_UnreachablePeer verifies unreachable peers don't crash.
+func TestAgent_ProbePeers_UnreachablePeer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	tmpDir := t.TempDir()
+
+	cfg := &Config{
+		Name:    "alpha",
+		Port:    0,
+		Peers:   []string{"http://localhost:19999"}, // unreachable
+		LogFile: filepath.Join(tmpDir, "alpha.jsonl"),
+	}
+	agent1, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	go agent1.Start(ctx)
+	if err := agent1.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("not ready: %v", err)
+	}
+	defer agent1.Shutdown(context.Background())
+
+	// Wait for probe attempt
+	time.Sleep(500 * time.Millisecond)
+
+	// Should have no peers (unreachable)
+	info := agent1.GetPeerInfo()
+	if len(info) != 0 {
+		t.Errorf("GetPeerInfo() len = %d, want 0 (unreachable peer)", len(info))
+	}
+}
+
+// TestAgent_ProbePeers_NoPeers verifies agent with no peers starts normally.
+func TestAgent_ProbePeers_NoPeers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	tmpDir := t.TempDir()
+
+	cfg := &Config{
+		Name:    "alpha",
+		Port:    0,
+		LogFile: filepath.Join(tmpDir, "alpha.jsonl"),
+	}
+	agent1, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	go agent1.Start(ctx)
+	if err := agent1.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("not ready: %v", err)
+	}
+	defer agent1.Shutdown(context.Background())
+
+	info := agent1.GetPeerInfo()
+	if len(info) != 0 {
+		t.Errorf("GetPeerInfo() len = %d, want 0", len(info))
+	}
+}
+
+// =============================================================================
+// Background Probe Tests (Plan 005, Phase 2)
+// =============================================================================
+
+// TestAgent_BackgroundProbe_CleanShutdown verifies no goroutine leak on shutdown.
+func TestAgent_BackgroundProbe_CleanShutdown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tmpDir := t.TempDir()
+	cfg := &Config{
+		Name:              "alpha",
+		Port:              0,
+		Peers:             []string{"http://localhost:19999"},
+		LogFile:           filepath.Join(tmpDir, "alpha.jsonl"),
+		PeerProbeInterval: 100 * time.Millisecond, // fast for test
+	}
+
+	a, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	go a.Start(ctx)
+	if err := a.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("not ready: %v", err)
+	}
+
+	// Let a few probe cycles run
+	time.Sleep(350 * time.Millisecond)
+
+	// Shutdown should be clean (no panic, no hang)
+	if err := a.Shutdown(context.Background()); err != nil {
+		t.Errorf("Shutdown failed: %v", err)
+	}
+}
+
+// TestAgent_BackgroundProbe_PeerRecovery verifies a peer that comes online is detected.
+func TestAgent_BackgroundProbe_PeerRecovery(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	tmpDir := t.TempDir()
+
+	// Start agent1 with a peer URL that doesn't exist yet
+	// We'll use port 0 for agent2 so we need to start agent1 first with a placeholder
+	// Actually, start agent2 later to simulate recovery
+
+	// Start agent1 pointing to a not-yet-running port
+	cfg1 := &Config{
+		Name:              "alpha",
+		Port:              0,
+		Peers:             []string{}, // will add after agent2 starts
+		LogFile:           filepath.Join(tmpDir, "alpha.jsonl"),
+		PeerProbeInterval: 200 * time.Millisecond,
+	}
+
+	agent1, err := New(cfg1)
+	if err != nil {
+		t.Fatalf("New agent1 failed: %v", err)
+	}
+	go agent1.Start(ctx)
+	if err := agent1.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("agent1 not ready: %v", err)
+	}
+	defer agent1.Shutdown(context.Background())
+
+	// Verify no peers initially
+	info := agent1.GetPeerInfo()
+	if len(info) != 0 {
+		t.Fatalf("expected 0 peers initially, got %d", len(info))
+	}
+
+	// Start agent2
+	cfg2 := &Config{
+		Name:        "bravo",
+		Description: "Recovered peer",
+		Port:        0,
+		LogFile:     filepath.Join(tmpDir, "bravo.jsonl"),
+	}
+	agent2, err := New(cfg2)
+	if err != nil {
+		t.Fatalf("New agent2 failed: %v", err)
+	}
+	go agent2.Start(ctx)
+	if err := agent2.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("agent2 not ready: %v", err)
+	}
+	defer agent2.Shutdown(context.Background())
+
+	// Now add agent2 as a peer to agent1's config and trigger a probe
+	agent1.mu.Lock()
+	agent1.config.Peers = []string{agent2.URL()}
+	agent1.mu.Unlock()
+
+	// Wait for background probe to pick it up
+	time.Sleep(500 * time.Millisecond)
+
+	info = agent1.GetPeerInfo()
+	if len(info) != 1 {
+		t.Fatalf("expected 1 peer after recovery, got %d", len(info))
+	}
+	if info[0].Name != "bravo" {
+		t.Errorf("peer Name = %q, want %q", info[0].Name, "bravo")
+	}
+}
+
 // mockExecutor is a test implementation of LLMExecutor for agent tests.
 type mockExecutor struct {
 	installed     bool

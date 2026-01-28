@@ -260,24 +260,24 @@ curl -s http://localhost:<port>/.well-known/agent.json | jq '.description'
 
 | # | Status | Task | CS | Success Criteria | Log | Notes |
 |---|--------|------|----|------------------|-----|-------|
-| 2.1 | [ ] | Write tests for PeerInfo struct and extended PeerProvider | 2 | Tests cover: PeerInfo fields, GetPeerInfo contract | - | handlers_test.go |
-| 2.2 | [ ] | Define PeerInfo struct and update PeerProvider interface | 2 | Compile succeeds; tests from 2.1 pass | - | handlers.go |
-| 2.3 | [ ] | Update Agent.GetPeerInfo() implementation | 2 | Agent implements new interface, reads from knownPeers | - | agent.go |
-| 2.4 | [ ] | Write tests for probePeers() | 2 | Tests cover: all peers probed, unreachable peers handled, knownPeers populated | - | agent_test.go; mock HTTP server |
-| 2.5 | [ ] | Implement probePeers() in Agent.Start() | 3 | Startup probes configured peers, populates knownPeers | - | agent.go after line 233 |
-| 2.6 | [ ] | Write tests for enhanced DiscoverHandler | 2 | Tests cover: rich response format, empty peers, peer with/without description | - | handlers_test.go |
-| 2.7 | [ ] | Update NewDiscoverHandler to use PeerInfo | 2 | Returns name, URL, description, skills, available status | - | handlers.go |
-| 2.8 | [ ] | Write tests for background health re-probe | 2 | Tests cover: periodic re-probe (default 30s, configurable via `WINGMATE_PEER_PROBE_INTERVAL`), peer goes offline after 2 failed probes, peer recovery detected within 1 interval | - | agent_test.go |
-| 2.9 | [ ] | Implement background health re-probe goroutine | 2 | Periodic check updates knownPeers availability; selects on ctx.Done() for clean shutdown | - | agent.go |
-| 2.10 | [ ] | Write integration test: two agents, discover returns peer | 3 | Start agent1 (port 0, name=alpha, purpose="iOS dev", peers=agent2 URL) and agent2 (port 0, name=bravo, purpose="Backend dev"). Call wingmate_discover via MCP on agent1. Response includes bravo with description "Backend dev". | - | tests/integration/ |
-| 2.11 | [ ] | Run full test suite | 1 | `go test ./... -race` passes | - | Regression check |
+| 2.1 | [x] | Write tests for PeerInfo struct and extended PeerProvider | 2 | Tests cover: PeerInfo fields, GetPeerInfo contract | - | handlers_test.go |
+| 2.2 | [x] | Define PeerInfo struct and update PeerProvider interface | 2 | Compile succeeds; tests from 2.1 pass | - | handlers.go |
+| 2.3 | [x] | Update Agent.GetPeerInfo() implementation | 2 | Agent implements new interface, reads from knownPeers | - | agent.go |
+| 2.4 | [x] | Write tests for probePeers() | 2 | Tests cover: all peers probed, unreachable peers handled, knownPeers populated | - | agent_test.go; mock HTTP server |
+| 2.5 | [x] | Implement probePeers() in Agent.Start() | 3 | Startup probes configured peers, populates knownPeers | - | agent.go after line 233 |
+| 2.6 | [x] | Write tests for enhanced DiscoverHandler | 2 | Tests cover: rich response format, empty peers, peer with/without description | - | handlers_test.go |
+| 2.7 | [x] | Update NewDiscoverHandler to use PeerInfo | 2 | Returns name, URL, description, skills, available status | - | handlers.go |
+| 2.8 | [x] | Write tests for background health re-probe | 2 | Tests cover: periodic re-probe (default 30s, configurable via `WINGMATE_PEER_PROBE_INTERVAL`), peer goes offline after 2 failed probes, peer recovery detected within 1 interval | - | agent_test.go |
+| 2.9 | [x] | Implement background health re-probe goroutine | 2 | Periodic check updates knownPeers availability; selects on ctx.Done() for clean shutdown | - | agent.go |
+| 2.10 | [x] | Write integration test: two agents, discover returns peer | 3 | Start agent1 (port 0, name=alpha, purpose="iOS dev", peers=agent2 URL) and agent2 (port 0, name=bravo, purpose="Backend dev"). Call wingmate_discover via MCP on agent1. Response includes bravo with description "Backend dev". | - | tests/integration/ |
+| 2.11 | [x] | Run full test suite | 1 | `go test ./... -race` passes | - | Regression check |
 
 ### Acceptance Criteria
-- [ ] Agent with `--peers http://localhost:9100` probes peer on startup
-- [ ] `wingmate_discover` returns peer name, URL, description, skills
-- [ ] Unreachable peers shown as unavailable
-- [ ] Background re-probe detects peer recovery
-- [ ] All existing tests pass
+- [x] Agent with `--peers http://localhost:9100` probes peer on startup
+- [x] `wingmate_discover` returns peer name, URL, description, skills
+- [x] Unreachable peers shown as unavailable
+- [x] Background re-probe detects peer recovery
+- [x] All existing tests pass
 
 ---
 

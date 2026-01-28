@@ -231,6 +231,11 @@ func (a *Agent) Start(ctx context.Context) error {
 			a.card.URL = a.URL()
 			a.server.SetAgentCard(a.card)
 			close(a.ready)
+
+			// Probe configured peers in background
+			go a.probePeers(ctx)
+			// Start background health re-probe
+			go a.backgroundProbe(ctx)
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
@@ -497,6 +502,68 @@ func (a *Agent) GetPeers() []string {
 		peers = append(peers, url)
 	}
 	return peers
+}
+
+// backgroundProbe periodically re-probes peers to keep availability current.
+func (a *Agent) backgroundProbe(ctx context.Context) {
+	ticker := time.NewTicker(a.config.PeerProbeInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			a.probePeers(ctx)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// probePeers probes all configured peers and populates knownPeers.
+// Called as a goroutine after server is ready.
+func (a *Agent) probePeers(ctx context.Context) {
+	a.mu.RLock()
+	peers := make([]string, len(a.config.Peers))
+	copy(peers, a.config.Peers)
+	a.mu.RUnlock()
+
+	for _, peerURL := range peers {
+		if ctx.Err() != nil {
+			return
+		}
+		_, err := a.GetPeerCard(ctx, peerURL)
+		if err != nil {
+			// Log warning but don't fail — peer may come online later
+			entry := flightlog.NewEntry(ctx, a.config.Name, flightlog.Outbound,
+				fmt.Sprintf("Failed to probe peer %s: %v", peerURL, err), nil)
+			a.flightLog.Record(entry)
+		}
+	}
+}
+
+// GetPeerInfo implements mcp.PeerProvider.
+// Returns rich information about all known peer agents.
+func (a *Agent) GetPeerInfo() []mcp.PeerInfo {
+	a.peersMu.RLock()
+	defer a.peersMu.RUnlock()
+
+	info := make([]mcp.PeerInfo, 0, len(a.knownPeers))
+	for url, card := range a.knownPeers {
+		pi := mcp.PeerInfo{
+			Name:        card.Name,
+			URL:         url,
+			Description: card.Description,
+			Available:   true,
+		}
+		for _, skill := range card.Skills {
+			pi.Skills = append(pi.Skills, mcp.PeerSkill{
+				Name:        skill.Name,
+				Description: skill.Description,
+			})
+		}
+		info = append(info, pi)
+	}
+	return info
 }
 
 // Ensure Agent implements required interfaces.

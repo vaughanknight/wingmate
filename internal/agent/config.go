@@ -10,9 +10,10 @@ import (
 
 // Default configuration values.
 const (
-	DefaultPort        = 9000
-	DefaultLogFile     = "./flight.jsonl"
-	DefaultDescription = "Wingmate A2A agent"
+	DefaultPort              = 9000
+	DefaultLogFile           = "./flight.jsonl"
+	DefaultDescription       = "Wingmate A2A agent"
+	DefaultPeerProbeInterval = 30 * time.Second
 )
 
 // Claude CLI default configuration values.
@@ -28,7 +29,8 @@ const (
 	EnvPeers   = "WINGMATE_PEERS"
 	EnvLog     = "WINGMATE_LOG"
 	EnvVerbose = "WINGMATE_VERBOSE"
-	EnvPurpose = "WINGMATE_PURPOSE"
+	EnvPurpose            = "WINGMATE_PURPOSE"
+	EnvPeerProbeInterval  = "WINGMATE_PEER_PROBE_INTERVAL"
 )
 
 // Claude CLI environment variable names.
@@ -57,7 +59,8 @@ type Config struct {
 	LogFile      string       `json:"logFile"`                   // Flight log path (default: ./flight.jsonl)
 	Verbose      bool         `json:"verbose"`                   // Mirror logs to stdout
 	Capabilities []string     `json:"capabilities,omitempty"`    // Advertised capabilities
-	Claude       ClaudeConfig `json:"claude,omitempty"`          // Claude CLI configuration
+	Claude            ClaudeConfig  `json:"claude,omitempty"`          // Claude CLI configuration
+	PeerProbeInterval time.Duration `json:"peerProbeInterval,omitempty"` // Background peer probe interval (default: 30s)
 }
 
 // NewConfig creates a new Config with default values.
@@ -138,6 +141,12 @@ func (c *Config) WithEnv() *Config {
 		result.Claude.SystemPrompt = systemPrompt
 	}
 
+	if probeInterval := os.Getenv(EnvPeerProbeInterval); probeInterval != "" {
+		if d, err := time.ParseDuration(probeInterval); err == nil {
+			result.PeerProbeInterval = d
+		}
+	}
+
 	return result
 }
 
@@ -176,17 +185,22 @@ func (c *Config) WithDefaults() *Config {
 		result.Claude.SystemPrompt = DefaultClaudeSystemPrompt
 	}
 
+	if result.PeerProbeInterval == 0 {
+		result.PeerProbeInterval = DefaultPeerProbeInterval
+	}
+
 	return result
 }
 
 // Clone creates a deep copy of the Config.
 func (c *Config) Clone() *Config {
 	result := &Config{
-		Name:        c.Name,
-		Description: c.Description,
-		Port:        c.Port,
-		LogFile:     c.LogFile,
-		Verbose:     c.Verbose,
+		Name:              c.Name,
+		Description:       c.Description,
+		Port:              c.Port,
+		LogFile:           c.LogFile,
+		Verbose:           c.Verbose,
+		PeerProbeInterval: c.PeerProbeInterval,
 		Claude: ClaudeConfig{
 			CLIPath:      c.Claude.CLIPath,
 			Model:        c.Claude.Model,

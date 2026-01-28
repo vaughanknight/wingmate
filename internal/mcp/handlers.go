@@ -29,12 +29,29 @@ type SessionManager interface {
 	SetSession(id string, data map[string]any)
 }
 
+// PeerSkill describes a peer agent's skill for discovery responses.
+type PeerSkill struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// PeerInfo contains rich information about a peer agent.
+type PeerInfo struct {
+	Name        string      `json:"name"`
+	URL         string      `json:"url"`
+	Description string      `json:"description,omitempty"`
+	Skills      []PeerSkill `json:"skills,omitempty"`
+	Available   bool        `json:"available"`
+}
+
 // PeerProvider supplies peer information for the discover tool.
 // This interface enables dependency injection from the agent package
 // without creating circular imports (agent imports mcp, so mcp cannot import agent).
 type PeerProvider interface {
 	// GetPeers returns URLs of known peer agents.
 	GetPeers() []string
+	// GetPeerInfo returns rich information about known peer agents.
+	GetPeerInfo() []PeerInfo
 }
 
 // =============================================================================
@@ -145,8 +162,8 @@ func NewStatusHandler(executor llm.LLMExecutor, startTime time.Time) ToolHandler
 
 // DiscoverInfo contains peer discovery information.
 type DiscoverInfo struct {
-	AgentID string   `json:"agent_id"`
-	Peers   []string `json:"peers"`
+	AgentID string     `json:"agent_id"`
+	Peers   []PeerInfo `json:"peers"`
 }
 
 // NewDiscoverHandler creates a handler for the wingmate_discover tool.
@@ -154,16 +171,16 @@ type DiscoverInfo struct {
 //
 // Parameters:
 //   - agentID: This agent's unique identifier
-//   - peers: PeerProvider for retrieving known peer URLs (nil returns empty list)
+//   - peers: PeerProvider for retrieving known peer info (nil returns empty list)
 func NewDiscoverHandler(agentID string, peers PeerProvider) ToolHandler {
 	return func(ctx context.Context, req *ToolRequest) (*ToolResult, error) {
-		// Get peers from provider (nil-safe)
-		var peerList []string
+		// Get peer info from provider (nil-safe)
+		var peerList []PeerInfo
 		if peers != nil {
-			peerList = peers.GetPeers()
+			peerList = peers.GetPeerInfo()
 		}
 		if peerList == nil {
-			peerList = []string{}
+			peerList = []PeerInfo{}
 		}
 
 		info := DiscoverInfo{
