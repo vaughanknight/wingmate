@@ -44,6 +44,13 @@ type PeerInfo struct {
 	Available   bool        `json:"available"`
 }
 
+// PeerDelegator enables delegating messages to peer agents.
+// This interface is separate from PeerProvider to maintain single-responsibility.
+type PeerDelegator interface {
+	// DelegateMessage sends a message to a peer (resolved by name or URL) and returns the response text.
+	DelegateMessage(ctx context.Context, peer string, message string, sessionID string) (string, error)
+}
+
 // PeerProvider supplies peer information for the discover tool.
 // This interface enables dependency injection from the agent package
 // without creating circular imports (agent imports mcp, so mcp cannot import agent).
@@ -199,6 +206,64 @@ func NewDiscoverHandler(agentID string, peers PeerProvider) ToolHandler {
 
 		return &ToolResult{
 			Content: []Content{&TextContent{Text: string(data)}},
+			IsError: false,
+		}, nil
+	}
+}
+
+// =============================================================================
+// wingmate_ask Handler
+// =============================================================================
+
+// NewAskHandler creates a handler for the wingmate_ask tool.
+// It delegates a message to a peer agent via the PeerDelegator interface.
+//
+// Parameters:
+//   - delegator: The PeerDelegator for sending messages to peers
+//   - logger: Optional Flight Log logger
+func NewAskHandler(delegator PeerDelegator, logger Logger) ToolHandler {
+	return func(ctx context.Context, req *ToolRequest) (*ToolResult, error) {
+		// Log invocation
+		if logger != nil {
+			_ = logger.Record(map[string]any{
+				"tool":      ToolNameAsk,
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"event":     "invoked",
+			})
+		}
+
+		// Extract and validate peer
+		peer, ok := req.Arguments["peer"].(string)
+		if !ok || peer == "" {
+			return &ToolResult{
+				Content: []Content{&TextContent{Text: "missing required argument: peer"}},
+				IsError: true,
+			}, nil
+		}
+
+		// Extract and validate message
+		message, ok := req.Arguments["message"].(string)
+		if !ok || message == "" {
+			return &ToolResult{
+				Content: []Content{&TextContent{Text: "missing required argument: message"}},
+				IsError: true,
+			}, nil
+		}
+
+		// Extract optional session_id
+		sessionID, _ := req.Arguments["session_id"].(string)
+
+		// Delegate to peer
+		response, err := delegator.DelegateMessage(ctx, peer, message, sessionID)
+		if err != nil {
+			return &ToolResult{
+				Content: []Content{&TextContent{Text: err.Error()}},
+				IsError: true,
+			}, nil
+		}
+
+		return &ToolResult{
+			Content: []Content{&TextContent{Text: response}},
 			IsError: false,
 		}, nil
 	}

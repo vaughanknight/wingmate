@@ -696,3 +696,214 @@ func TestWingmateDiscoverEmptyPeerInfo(t *testing.T) {
 		t.Errorf("Peers len = %d, want 0", len(info.Peers))
 	}
 }
+
+// =============================================================================
+// PeerDelegator & wingmate_ask Tests (Plan 005, Phase 3)
+// =============================================================================
+
+// mockPeerDelegator implements PeerDelegator for testing.
+type mockPeerDelegator struct {
+	response    string
+	err         error
+	lastPeer    string
+	lastMessage string
+	lastSession string
+	callCount   int
+}
+
+func (m *mockPeerDelegator) DelegateMessage(ctx context.Context, peer string, message string, sessionID string) (string, error) {
+	m.callCount++
+	m.lastPeer = peer
+	m.lastMessage = message
+	m.lastSession = sessionID
+	if m.err != nil {
+		return "", m.err
+	}
+	return m.response, nil
+}
+
+// TestMockPeerDelegator_DelegateByName verifies mock handles name-based delegation.
+func TestMockPeerDelegator_DelegateByName(t *testing.T) {
+	delegator := &mockPeerDelegator{response: "pong"}
+	resp, err := delegator.DelegateMessage(context.Background(), "bravo", "ping", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp != "pong" {
+		t.Errorf("response = %q, want %q", resp, "pong")
+	}
+	if delegator.lastPeer != "bravo" {
+		t.Errorf("lastPeer = %q, want %q", delegator.lastPeer, "bravo")
+	}
+}
+
+// TestMockPeerDelegator_DelegateByURL verifies mock handles URL-based delegation.
+func TestMockPeerDelegator_DelegateByURL(t *testing.T) {
+	delegator := &mockPeerDelegator{response: "hello back"}
+	resp, err := delegator.DelegateMessage(context.Background(), "http://localhost:9001", "hello", "session-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp != "hello back" {
+		t.Errorf("response = %q, want %q", resp, "hello back")
+	}
+	if delegator.lastSession != "session-1" {
+		t.Errorf("lastSession = %q, want %q", delegator.lastSession, "session-1")
+	}
+}
+
+// TestMockPeerDelegator_UnknownPeer verifies mock returns error for unknown peer.
+func TestMockPeerDelegator_UnknownPeer(t *testing.T) {
+	delegator := &mockPeerDelegator{err: NewMCPError(ErrCodePeerNotFound, "peer not found: unknown")}
+	_, err := delegator.DelegateMessage(context.Background(), "unknown", "hello", "")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsMCPError(err, ErrCodePeerNotFound) {
+		t.Errorf("expected error code %d, got: %v", ErrCodePeerNotFound, err)
+	}
+}
+
+// TestWingmateAskSuccess verifies successful delegation via ask handler.
+func TestWingmateAskSuccess(t *testing.T) {
+	delegator := &mockPeerDelegator{response: "Go is great!"}
+	handler := NewAskHandler(delegator, nil)
+
+	req := &ToolRequest{
+		Name:      ToolNameAsk,
+		Arguments: map[string]any{"peer": "bravo", "message": "What is Go?"},
+		ctx:       context.Background(),
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Error("expected IsError=false")
+	}
+
+	text := result.Content[0].(*TextContent).Text
+	if text != "Go is great!" {
+		t.Errorf("response = %q, want %q", text, "Go is great!")
+	}
+	if delegator.lastPeer != "bravo" {
+		t.Errorf("lastPeer = %q, want %q", delegator.lastPeer, "bravo")
+	}
+	if delegator.lastMessage != "What is Go?" {
+		t.Errorf("lastMessage = %q, want %q", delegator.lastMessage, "What is Go?")
+	}
+}
+
+// TestWingmateAskMissingPeer verifies error when peer is missing.
+func TestWingmateAskMissingPeer(t *testing.T) {
+	delegator := &mockPeerDelegator{response: "ok"}
+	handler := NewAskHandler(delegator, nil)
+
+	req := &ToolRequest{
+		Name:      ToolNameAsk,
+		Arguments: map[string]any{"message": "hello"},
+		ctx:       context.Background(),
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for missing peer")
+	}
+}
+
+// TestWingmateAskMissingMessage verifies error when message is missing.
+func TestWingmateAskMissingMessage(t *testing.T) {
+	delegator := &mockPeerDelegator{response: "ok"}
+	handler := NewAskHandler(delegator, nil)
+
+	req := &ToolRequest{
+		Name:      ToolNameAsk,
+		Arguments: map[string]any{"peer": "bravo"},
+		ctx:       context.Background(),
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for missing message")
+	}
+}
+
+// TestWingmateAskUnknownPeer verifies error for unknown peer.
+func TestWingmateAskUnknownPeer(t *testing.T) {
+	delegator := &mockPeerDelegator{err: NewMCPError(ErrCodePeerNotFound, "peer not found: ghost")}
+	handler := NewAskHandler(delegator, nil)
+
+	req := &ToolRequest{
+		Name:      ToolNameAsk,
+		Arguments: map[string]any{"peer": "ghost", "message": "hello"},
+		ctx:       context.Background(),
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for unknown peer")
+	}
+}
+
+// TestWingmateAskSessionPassthrough verifies session_id is passed to delegator.
+func TestWingmateAskSessionPassthrough(t *testing.T) {
+	delegator := &mockPeerDelegator{response: "continued"}
+	handler := NewAskHandler(delegator, nil)
+
+	req := &ToolRequest{
+		Name:      ToolNameAsk,
+		Arguments: map[string]any{"peer": "bravo", "message": "continue", "session_id": "sess-42"},
+		ctx:       context.Background(),
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Error("expected IsError=false")
+	}
+	if delegator.lastSession != "sess-42" {
+		t.Errorf("lastSession = %q, want %q", delegator.lastSession, "sess-42")
+	}
+}
+
+// TestWingmateAskWithLogger verifies logging when logger is provided.
+func TestWingmateAskWithLogger(t *testing.T) {
+	delegator := &mockPeerDelegator{response: "logged response"}
+	logger := &MockLogger{}
+	handler := NewAskHandler(delegator, logger)
+
+	req := &ToolRequest{
+		Name:      ToolNameAsk,
+		Arguments: map[string]any{"peer": "bravo", "message": "test logging"},
+		ctx:       context.Background(),
+	}
+
+	_, _ = handler(context.Background(), req)
+
+	if len(logger.Entries) == 0 {
+		t.Error("expected log entry, got none")
+	}
+
+	found := false
+	for _, entry := range logger.Entries {
+		if entry["tool"] == ToolNameAsk {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected log entry with tool name wingmate_ask")
+	}
+}

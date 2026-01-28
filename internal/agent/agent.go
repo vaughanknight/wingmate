@@ -125,6 +125,7 @@ func New(cfg *Config) (*Agent, error) {
 	mcpHandler.RegisterHandler(mcp.ToolNameChat, mcp.NewChatHandler(llmExec, nil, nil))
 	mcpHandler.RegisterHandler(mcp.ToolNameStatus, mcp.NewStatusHandler(llmExec, time.Now()))
 	mcpHandler.RegisterHandler(mcp.ToolNameDiscover, mcp.NewDiscoverHandler(cfg.Name, agent)) // Agent implements PeerProvider
+	mcpHandler.RegisterHandler(mcp.ToolNameAsk, mcp.NewAskHandler(agent, nil))               // Agent implements PeerDelegator
 
 	// Register MCP handler with server (wrapped with localhost middleware for security)
 	server.SetMCPHandler(mcp.LocalhostMiddleware(mcpHandler))
@@ -570,4 +571,5 @@ func (a *Agent) GetPeerInfo() []mcp.PeerInfo {
 var (
 	_ protocol.MessageHandler = (*Agent)(nil)
 	_ mcp.PeerProvider        = (*Agent)(nil)
+	_ mcp.PeerDelegator       = (*Agent)(nil)
 )

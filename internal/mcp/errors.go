@@ -36,6 +36,17 @@ const (
 	// ErrCodeShutdownInProgress indicates the server is shutting down.
 	ErrCodeShutdownInProgress = 3012
 
+	// Delegation errors (3030-3039)
+
+	// ErrCodePeerNotFound indicates the named peer was not found.
+	ErrCodePeerNotFound = 3030
+
+	// ErrCodePeerUnavailable indicates the peer is known but unreachable.
+	ErrCodePeerUnavailable = 3031
+
+	// ErrCodeDelegationFailed indicates the delegation attempt failed.
+	ErrCodeDelegationFailed = 3032
+
 	// Transport errors (3020-3029)
 
 	// ErrCodeInvalidJSON indicates invalid JSON in request/response.

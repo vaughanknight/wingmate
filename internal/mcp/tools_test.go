@@ -112,12 +112,71 @@ func TestWingmateDiscoverSchema(t *testing.T) {
 	}
 }
 
-// TestDefaultToolsReturnsAllTools verifies DefaultTools() returns all 3 tools.
+// TestWingmateAskSchema validates the wingmate_ask tool schema structure.
+func TestWingmateAskSchema(t *testing.T) {
+	tool := NewAskTool()
+
+	if tool.Name != ToolNameAsk {
+		t.Errorf("Expected name %q, got %q", ToolNameAsk, tool.Name)
+	}
+
+	if tool.Description == "" {
+		t.Error("Expected non-empty description")
+	}
+
+	schema := tool.InputSchema
+	if schema["type"] != "object" {
+		t.Errorf("Expected type object, got %v", schema["type"])
+	}
+
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("Expected properties to be a map")
+	}
+
+	// Check peer field
+	peer, ok := props["peer"].(map[string]any)
+	if !ok {
+		t.Fatal("Expected peer property")
+	}
+	if peer["type"] != "string" {
+		t.Errorf("Expected peer type string, got %v", peer["type"])
+	}
+
+	// Check message field
+	msg, ok := props["message"].(map[string]any)
+	if !ok {
+		t.Fatal("Expected message property")
+	}
+	if msg["type"] != "string" {
+		t.Errorf("Expected message type string, got %v", msg["type"])
+	}
+
+	// Check session_id field
+	sid, ok := props["session_id"].(map[string]any)
+	if !ok {
+		t.Fatal("Expected session_id property")
+	}
+	if sid["type"] != "string" {
+		t.Errorf("Expected session_id type string, got %v", sid["type"])
+	}
+
+	// Check required
+	required, ok := schema["required"].([]string)
+	if !ok {
+		t.Fatal("Expected required to be string array")
+	}
+	if len(required) != 2 {
+		t.Fatalf("Expected 2 required, got %d", len(required))
+	}
+}
+
+// TestDefaultToolsReturnsAllTools verifies DefaultTools() returns all 4 tools.
 func TestDefaultToolsReturnsAllTools(t *testing.T) {
 	tools := DefaultTools()
 
-	if len(tools) != 3 {
-		t.Errorf("Expected 3 tools, got %d", len(tools))
+	if len(tools) != 4 {
+		t.Errorf("Expected 4 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)
@@ -133,5 +192,8 @@ func TestDefaultToolsReturnsAllTools(t *testing.T) {
 	}
 	if !names[ToolNameDiscover] {
 		t.Error("Missing wingmate_discover")
+	}
+	if !names[ToolNameAsk] {
+		t.Error("Missing wingmate_ask")
 	}
 }

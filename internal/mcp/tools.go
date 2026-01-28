@@ -12,6 +12,9 @@ const (
 
 	// ToolNameDiscover is the name of the wingmate_discover tool.
 	ToolNameDiscover = "wingmate_discover"
+
+	// ToolNameAsk is the name of the wingmate_ask tool.
+	ToolNameAsk = "wingmate_ask"
 )
 
 // NewChatTool creates the wingmate_chat tool definition.
@@ -63,11 +66,39 @@ func NewDiscoverTool() *ToolDefinition {
 	}
 }
 
+// NewAskTool creates the wingmate_ask tool definition.
+// This tool delegates a message to a named peer agent via A2A protocol.
+func NewAskTool() *ToolDefinition {
+	return &ToolDefinition{
+		Name:        ToolNameAsk,
+		Description: "Send a message to a peer agent and get their response",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"peer": map[string]any{
+					"type":        "string",
+					"description": "Peer agent name or URL to delegate to",
+				},
+				"message": map[string]any{
+					"type":        "string",
+					"description": "Message to send to the peer agent",
+				},
+				"session_id": map[string]any{
+					"type":        "string",
+					"description": "Optional session ID for multi-turn conversation continuity",
+				},
+			},
+			"required": []string{"peer", "message"},
+		},
+	}
+}
+
 // DefaultTools returns all default Wingmate MCP tools.
 func DefaultTools() []*ToolDefinition {
 	return []*ToolDefinition{
 		NewChatTool(),
 		NewStatusTool(),
 		NewDiscoverTool(),
+		NewAskTool(),
 	}
 }

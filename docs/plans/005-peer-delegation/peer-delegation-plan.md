@@ -305,28 +305,28 @@ curl -s http://localhost:<port>/.well-known/agent.json | jq '.description'
 
 | # | Status | Task | CS | Success Criteria | Log | Notes |
 |---|--------|------|----|------------------|-----|-------|
-| 3.1 | [ ] | Write tests for PeerDelegator interface | 2 | Tests cover: delegate by name, by URL, unknown peer error, unavailable peer error | - | handlers_test.go |
-| 3.2 | [ ] | Define PeerDelegator interface in mcp/ | 1 | Interface compiles, separate from PeerProvider | - | handlers.go |
-| 3.3 | [ ] | Implement PeerDelegator on Agent | 3 | Agent.DelegateMessage resolves peer, calls SendMessage, logs both entries | - | agent.go or client.go |
-| 3.4 | [ ] | Write tests for wingmate_ask tool definition | 1 | Schema has peer (required), message (required), session_id (optional) | - | tools_test.go |
-| 3.5 | [ ] | Add wingmate_ask tool definition | 1 | Tool in DefaultTools(), schema correct | - | tools.go |
-| 3.6 | [ ] | Write tests for NewAskHandler | 3 | Tests: successful delegation, unknown peer (error code 3010), unavailable peer (error with last-seen), empty message (error code 3003), session_id passthrough. Mock PeerDelegator captures ctx; assert trace ID from ctx matches Flight Log entries. | - | handlers_test.go |
-| 3.7 | [ ] | Implement NewAskHandler | 3 | Handler delegates via PeerDelegator, returns response text | - | handlers.go |
-| 3.8 | [ ] | Write tests for JSON-RPC ID round-trip | 2 | IDs of type string, int, float survive delegation without type change | - | handlers_test.go |
-| 3.9 | [ ] | Register wingmate_ask in Agent.New() | 1 | Tool appears in tools/list, handler registered | - | agent.go after line 127 |
-| 3.10 | [ ] | Write tests for Flight Log trace correlation | 2 | MCP inbound + A2A outbound share same trace ID | - | handlers_test.go |
-| 3.11 | [ ] | Write integration test: full delegation round-trip | 3 | Start agent1 (port 0, name=alpha, peers=agent2 URL) and agent2 (port 0, name=bravo) with MockLLMExecutor. Send MCP tools/call wingmate_ask(peer="bravo", message="hello") to agent1. Assert response contains bravo's mock LLM output. Assert Flight Log has 2 entries with matching trace ID. | - | tests/integration/ |
-| 3.12 | [ ] | Run full test suite | 1 | `go test ./... -race` passes | - | Regression check |
+| 3.1 | [x] | Write tests for PeerDelegator interface | 2 | Tests cover: delegate by name, by URL, unknown peer error, unavailable peer error | - | handlers_test.go |
+| 3.2 | [x] | Define PeerDelegator interface in mcp/ | 1 | Interface compiles, separate from PeerProvider | - | handlers.go |
+| 3.3 | [x] | Implement PeerDelegator on Agent | 3 | Agent.DelegateMessage resolves peer, calls SendMessage, logs both entries | - | agent.go or client.go |
+| 3.4 | [x] | Write tests for wingmate_ask tool definition | 1 | Schema has peer (required), message (required), session_id (optional) | - | tools_test.go |
+| 3.5 | [x] | Add wingmate_ask tool definition | 1 | Tool in DefaultTools(), schema correct | - | tools.go |
+| 3.6 | [x] | Write tests for NewAskHandler | 3 | Tests: successful delegation, unknown peer (error code 3010), unavailable peer (error with last-seen), empty message (error code 3003), session_id passthrough. Mock PeerDelegator captures ctx; assert trace ID from ctx matches Flight Log entries. | - | handlers_test.go |
+| 3.7 | [x] | Implement NewAskHandler | 3 | Handler delegates via PeerDelegator, returns response text | - | handlers.go |
+| 3.8 | [x] | Write tests for JSON-RPC ID round-trip | 2 | IDs of type string, int, float survive delegation without type change | - | handlers_test.go |
+| 3.9 | [x] | Register wingmate_ask in Agent.New() | 1 | Tool appears in tools/list, handler registered | - | agent.go after line 127 |
+| 3.10 | [x] | Write tests for Flight Log trace correlation | 2 | MCP inbound + A2A outbound share same trace ID | - | handlers_test.go |
+| 3.11 | [x] | Write integration test: full delegation round-trip | 3 | Start agent1 (port 0, name=alpha, peers=agent2 URL) and agent2 (port 0, name=bravo) with MockLLMExecutor. Send MCP tools/call wingmate_ask(peer="bravo", message="hello") to agent1. Assert response contains bravo's mock LLM output. Assert Flight Log has 2 entries with matching trace ID. | - | tests/integration/ |
+| 3.12 | [x] | Run full test suite | 1 | `go test ./... -race` passes | - | Regression check |
 
 ### Acceptance Criteria
-- [ ] `wingmate_ask(peer="bravo", message="hello")` returns bravo's LLM response
-- [ ] Name and URL peer resolution both work
-- [ ] Unknown peer returns clear error
-- [ ] Unavailable peer returns clear error with last-seen info
-- [ ] `session_id` parameter enables multi-turn delegation
-- [ ] Flight Log has correlated MCP + A2A entries
-- [ ] JSON-RPC IDs preserved through round-trip
-- [ ] `HandleMessage()` untouched
+- [x] `wingmate_ask(peer="bravo", message="hello")` returns bravo's LLM response
+- [x] Name and URL peer resolution both work
+- [x] Unknown peer returns clear error
+- [x] Unavailable peer returns clear error with last-seen info
+- [x] `session_id` parameter enables multi-turn delegation
+- [x] Flight Log has correlated MCP + A2A entries
+- [x] JSON-RPC IDs preserved through round-trip
+- [x] `HandleMessage()` untouched
 
 ---
 
@@ -457,9 +457,9 @@ curl -s http://localhost:<port>/.well-known/agent.json | jq '.description'
 ## Progress Tracking
 
 ### Phase Completion Checklist
-- [ ] Phase 1: Config, Types & Purpose Plumbing
-- [ ] Phase 2: Peer Bootstrap & Discovery Enrichment
-- [ ] Phase 3: Delegation Tool (wingmate_ask)
+- [x] Phase 1: Config, Types & Purpose Plumbing
+- [x] Phase 2: Peer Bootstrap & Discovery Enrichment
+- [x] Phase 3: Delegation Tool (wingmate_ask)
 - [ ] Phase 4: System Prompt & Specialization
 - [ ] Phase 5: Documentation
 

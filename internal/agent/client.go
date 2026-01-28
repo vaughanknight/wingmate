@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/wingmate/wingmate/internal/flightlog"
+	"github.com/wingmate/wingmate/internal/mcp"
 	"github.com/wingmate/wingmate/pkg/types"
 )
 
@@ -137,6 +138,71 @@ func (a *Agent) GetKnownPeer(peerURL string) *types.AgentCard {
 	a.peersMu.RLock()
 	defer a.peersMu.RUnlock()
 	return a.knownPeers[peerURL]
+}
+
+// DelegateMessage implements mcp.PeerDelegator.
+// Resolves a peer by name or URL, sends a message, and returns the response text.
+func (a *Agent) DelegateMessage(ctx context.Context, peer string, message string, sessionID string) (string, error) {
+	// Resolve peer to URL
+	peerURL := a.resolvePeer(peer)
+	if peerURL == "" {
+		return "", mcp.NewMCPError(mcp.ErrCodePeerNotFound, fmt.Sprintf("peer not found: %s", peer))
+	}
+
+	// Build message
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.Part{
+			{Kind: "text", Text: message},
+		},
+	}
+
+	// Send via A2A
+	resp, err := a.SendMessage(ctx, peerURL, msg)
+	if err != nil {
+		return "", mcp.WrapMCPError(mcp.ErrCodeDelegationFailed, fmt.Sprintf("delegation to %s failed", peer), err)
+	}
+
+	// Check for error response
+	if resp.Error != nil {
+		return "", mcp.NewMCPError(mcp.ErrCodeDelegationFailed,
+			fmt.Sprintf("peer %s returned error: %s (code %d)", peer, resp.Error.Message, resp.Error.Code))
+	}
+
+	// Extract text from result
+	resultBytes, err := json.Marshal(resp.Result)
+	if err != nil {
+		return "", mcp.WrapMCPError(mcp.ErrCodeDelegationFailed, "failed to marshal peer response", err)
+	}
+
+	respMsg, err := parseMessageFromResult(resultBytes)
+	if err != nil {
+		return "", mcp.WrapMCPError(mcp.ErrCodeDelegationFailed, "failed to parse peer response", err)
+	}
+
+	return extractTextFromMessage(respMsg), nil
+}
+
+// resolvePeer resolves a peer identifier (name or URL) to a URL.
+// If peer starts with "http", it's treated as a URL directly.
+// Otherwise, it's looked up by name in knownPeers.
+func (a *Agent) resolvePeer(peer string) string {
+	// Direct URL
+	if len(peer) >= 4 && peer[:4] == "http" {
+		return peer
+	}
+
+	// Resolve by name
+	a.peersMu.RLock()
+	defer a.peersMu.RUnlock()
+
+	for url, card := range a.knownPeers {
+		if card.Name == peer {
+			return url
+		}
+	}
+
+	return ""
 }
 
 // extractPeerName extracts a peer name from URL for logging.

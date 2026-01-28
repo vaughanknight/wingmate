@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wingmate/wingmate/internal/llm"
+	"github.com/wingmate/wingmate/internal/mcp"
 	"github.com/wingmate/wingmate/pkg/types"
 )
 
@@ -749,6 +750,129 @@ func TestAgent_BackgroundProbe_PeerRecovery(t *testing.T) {
 	}
 	if info[0].Name != "bravo" {
 		t.Errorf("peer Name = %q, want %q", info[0].Name, "bravo")
+	}
+}
+
+// =============================================================================
+// DelegateMessage Tests (Plan 005, Phase 3)
+// =============================================================================
+
+// TestAgent_DelegateMessage_ByName verifies delegation by peer name.
+func TestAgent_DelegateMessage_ByName(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	tmpDir := t.TempDir()
+
+	// Start bravo (responds to ping)
+	cfg2 := &Config{
+		Name:    "bravo",
+		Port:    0,
+		LogFile: filepath.Join(tmpDir, "bravo.jsonl"),
+	}
+	agent2, err := New(cfg2)
+	if err != nil {
+		t.Fatalf("New agent2 failed: %v", err)
+	}
+	go agent2.Start(ctx)
+	if err := agent2.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("agent2 not ready: %v", err)
+	}
+	defer agent2.Shutdown(context.Background())
+
+	// Start alpha with bravo as peer
+	cfg1 := &Config{
+		Name:    "alpha",
+		Port:    0,
+		Peers:   []string{agent2.URL()},
+		LogFile: filepath.Join(tmpDir, "alpha.jsonl"),
+	}
+	agent1, err := New(cfg1)
+	if err != nil {
+		t.Fatalf("New agent1 failed: %v", err)
+	}
+	go agent1.Start(ctx)
+	if err := agent1.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("agent1 not ready: %v", err)
+	}
+	defer agent1.Shutdown(context.Background())
+
+	// Wait for probe
+	time.Sleep(500 * time.Millisecond)
+
+	// Delegate by name
+	resp, err := agent1.DelegateMessage(ctx, "bravo", "ping", "")
+	if err != nil {
+		t.Fatalf("DelegateMessage failed: %v", err)
+	}
+	if resp != "pong" {
+		t.Errorf("response = %q, want %q", resp, "pong")
+	}
+}
+
+// TestAgent_DelegateMessage_ByURL verifies delegation by URL.
+func TestAgent_DelegateMessage_ByURL(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	tmpDir := t.TempDir()
+
+	cfg2 := &Config{
+		Name:    "bravo",
+		Port:    0,
+		LogFile: filepath.Join(tmpDir, "bravo.jsonl"),
+	}
+	agent2, err := New(cfg2)
+	if err != nil {
+		t.Fatalf("New agent2 failed: %v", err)
+	}
+	go agent2.Start(ctx)
+	if err := agent2.WaitUntilReady(5 * time.Second); err != nil {
+		t.Fatalf("agent2 not ready: %v", err)
+	}
+	defer agent2.Shutdown(context.Background())
+
+	cfg1 := &Config{
+		Name:    "alpha",
+		Port:    0,
+		LogFile: filepath.Join(tmpDir, "alpha.jsonl"),
+	}
+	agent1, err := New(cfg1)
+	if err != nil {
+		t.Fatalf("New agent1 failed: %v", err)
+	}
+	defer agent1.Shutdown(context.Background())
+
+	// Delegate by URL (no need for probing)
+	resp, err := agent1.DelegateMessage(ctx, agent2.URL(), "ping", "")
+	if err != nil {
+		t.Fatalf("DelegateMessage failed: %v", err)
+	}
+	if resp != "pong" {
+		t.Errorf("response = %q, want %q", resp, "pong")
+	}
+}
+
+// TestAgent_DelegateMessage_UnknownPeer verifies error for unknown peer.
+func TestAgent_DelegateMessage_UnknownPeer(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{
+		Name:    "alpha",
+		Port:    0,
+		LogFile: filepath.Join(tmpDir, "alpha.jsonl"),
+	}
+	agent1, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer agent1.Shutdown(context.Background())
+
+	_, err = agent1.DelegateMessage(context.Background(), "ghost", "hello", "")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !mcp.IsMCPError(err, mcp.ErrCodePeerNotFound) {
+		t.Errorf("expected error code %d, got: %v", mcp.ErrCodePeerNotFound, err)
 	}
 }
 
