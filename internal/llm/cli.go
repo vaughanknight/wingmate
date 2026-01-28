@@ -30,11 +30,12 @@ import (
 
 // CLIExecutor implements LLMExecutor by invoking the Claude CLI binary.
 type CLIExecutor struct {
-	cliPath     string
-	timeout     time.Duration
-	model       string
-	execCommand func(name string, args ...string) *exec.Cmd
-	lookPath    func(file string) (string, error)
+	cliPath      string
+	timeout      time.Duration
+	model        string
+	systemPrompt string
+	execCommand  func(name string, args ...string) *exec.Cmd
+	lookPath     func(file string) (string, error)
 }
 
 // Option configures a CLIExecutor.
@@ -67,6 +68,13 @@ func WithTimeout(d time.Duration) Option {
 func WithCLIPath(path string) Option {
 	return func(e *CLIExecutor) {
 		e.cliPath = path
+	}
+}
+
+// WithSystemPrompt sets the system prompt for CLI invocations.
+func WithSystemPrompt(prompt string) Option {
+	return func(e *CLIExecutor) {
+		e.systemPrompt = prompt
 	}
 }
 
@@ -155,6 +163,10 @@ func (e *CLIExecutor) buildArgs(prompt string, sessionID string) []string {
 
 	if e.model != "" {
 		args = append(args, "--model", e.model)
+	}
+
+	if e.systemPrompt != "" {
+		args = append(args, "--system-prompt", e.systemPrompt)
 	}
 
 	if sessionID != "" {

@@ -444,6 +444,61 @@ func TestCLIExecutor_BuildArgs_WithModel(t *testing.T) {
 	}
 }
 
+func TestCLIExecutor_WithSystemPrompt(t *testing.T) {
+	// When: We create an executor with a system prompt
+	executor := NewCLIExecutor(WithSystemPrompt("You are an iOS expert"))
+
+	// Then: System prompt should be set
+	if executor.systemPrompt != "You are an iOS expert" {
+		t.Errorf("systemPrompt = %q, want %q", executor.systemPrompt, "You are an iOS expert")
+	}
+}
+
+func TestCLIExecutor_BuildArgs_WithSystemPrompt(t *testing.T) {
+	// Given: An executor with a system prompt
+	executor := NewCLIExecutor(WithSystemPrompt("You are an iOS expert"))
+
+	// When: We build args
+	args := executor.buildArgs("Hello", "")
+
+	// Then: Should include --system-prompt flag
+	hasSystemPrompt := false
+	for i, arg := range args {
+		if arg == "--system-prompt" && i+1 < len(args) && args[i+1] == "You are an iOS expert" {
+			hasSystemPrompt = true
+			break
+		}
+	}
+	if !hasSystemPrompt {
+		t.Errorf("expected --system-prompt in args: %v", args)
+	}
+}
+
+func TestCLIExecutor_BuildArgs_WithoutSystemPrompt(t *testing.T) {
+	// Given: An executor without a system prompt
+	executor := NewCLIExecutor()
+
+	// When: We build args
+	args := executor.buildArgs("Hello", "")
+
+	// Then: Should NOT include --system-prompt flag
+	for _, arg := range args {
+		if arg == "--system-prompt" {
+			t.Errorf("unexpected --system-prompt in args: %v", args)
+		}
+	}
+}
+
+func TestCLIExecutor_WithSystemPrompt_Empty(t *testing.T) {
+	// When: We create an executor with empty system prompt
+	executor := NewCLIExecutor(WithSystemPrompt(""))
+
+	// Then: System prompt should be empty
+	if executor.systemPrompt != "" {
+		t.Errorf("systemPrompt = %q, want empty", executor.systemPrompt)
+	}
+}
+
 func TestCLIExecutor_IsInstalled_True(t *testing.T) {
 	// Given: An executor with a path that exists (use this test binary)
 	executor := NewCLIExecutor(WithCLIPath(os.Args[0]))

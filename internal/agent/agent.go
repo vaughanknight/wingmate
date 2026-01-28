@@ -80,6 +80,9 @@ func New(cfg *Config) (*Agent, error) {
 	if cfg.Claude.Model != "" {
 		cliOpts = append(cliOpts, llm.WithModel(cfg.Claude.Model))
 	}
+	if cfg.Claude.SystemPrompt != "" {
+		cliOpts = append(cliOpts, llm.WithSystemPrompt(cfg.Claude.SystemPrompt))
+	}
 
 	// Create executor and check if CLI is installed
 	executor := llm.NewCLIExecutor(cliOpts...)

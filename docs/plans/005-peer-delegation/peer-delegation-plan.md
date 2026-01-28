@@ -349,15 +349,15 @@ curl -s http://localhost:<port>/.well-known/agent.json | jq '.description'
 
 | # | Status | Task | CS | Success Criteria | Log | Notes |
 |---|--------|------|----|------------------|-----|-------|
-| 4.1 | [ ] | Write tests for system prompt in A2A handling | 2 | Tests: system prompt passed to executor, empty prompt handled | - | agent_test.go |
-| 4.2 | [ ] | Wire system prompt into handleLLMMessage | 2 | System prompt from config passed to executor.Execute() | - | agent.go:352-353 |
-| 4.3 | [ ] | Write test verifying CLIExecutor receives system prompt | 1 | Test asserts --system-prompt arg present in CLI invocation when config.SystemPrompt is non-empty, absent when empty | - | llm/cli_test.go |
-| 4.4 | [ ] | Run full test suite | 1 | `go test ./... -race` passes | - | Regression check |
+| 4.1 | [x] | Write tests for system prompt in A2A handling | 2 | Tests: system prompt passed to executor, empty prompt handled | - | agent_test.go |
+| 4.2 | [x] | Wire system prompt into handleLLMMessage | 2 | System prompt from config passed to executor.Execute() | - | agent.go:352-353 |
+| 4.3 | [x] | Write test verifying CLIExecutor receives system prompt | 1 | Test asserts --system-prompt arg present in CLI invocation when config.SystemPrompt is non-empty, absent when empty | - | llm/cli_test.go |
+| 4.4 | [x] | Run full test suite | 1 | `go test ./... -race` passes | - | Regression check |
 
 ### Acceptance Criteria
-- [ ] Agent with system prompt "You are an iOS expert" responds in character to A2A messages
-- [ ] Empty system prompt uses existing default behavior
-- [ ] Existing A2A behavior unchanged when no custom prompt set
+- [x] Agent with system prompt "You are an iOS expert" responds in character to A2A messages
+- [x] Empty system prompt uses existing default behavior
+- [x] Existing A2A behavior unchanged when no custom prompt set
 
 ---
 
@@ -460,7 +460,7 @@ curl -s http://localhost:<port>/.well-known/agent.json | jq '.description'
 - [x] Phase 1: Config, Types & Purpose Plumbing
 - [x] Phase 2: Peer Bootstrap & Discovery Enrichment
 - [x] Phase 3: Delegation Tool (wingmate_ask)
-- [ ] Phase 4: System Prompt & Specialization
+- [x] Phase 4: System Prompt & Specialization
 - [ ] Phase 5: Documentation
 
 ### STOP Rule
